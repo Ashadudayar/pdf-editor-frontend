@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Upload, Download, Search, Trash2, FileText } from 'lucide-react';
 
-// Hardcoded API URL - Replace with env var later
+// VERSION 3.0 - FINAL FIX
+const VERSION = '3.0';
 const API_URL = 'https://positive-creativity-production.up.railway.app/api';
 
 export default function EditorPage() {
@@ -13,11 +14,16 @@ export default function EditorPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
+  useEffect(() => {
+    console.log('🔥🔥🔥 EDITOR VERSION ' + VERSION + ' LOADED 🔥🔥🔥');
+    console.log('🌐 API URL:', API_URL);
+    console.log('🕐 Loaded at:', new Date().toISOString());
+  }, []);
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
     if (!uploadedFile) return;
 
-    // Create URL for preview
     const url = URL.createObjectURL(uploadedFile);
     setFile(uploadedFile);
     setFileUrl(url);
@@ -28,7 +34,7 @@ export default function EditorPage() {
     formData.append('file', uploadedFile);
 
     try {
-      console.log('🚀 Uploading to:', API_URL);
+      console.log('📤 Uploading to:', API_URL);
       
       const response = await fetch(`${API_URL}/documents/`, {
         method: 'POST',
@@ -110,13 +116,16 @@ export default function EditorPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      {/* Header */}
+      {/* Header with VERSION NUMBER */}
       <header className="border-b border-white/10 bg-black/20 backdrop-blur-lg">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <FileText className="w-8 h-8 text-purple-400" />
               <h1 className="text-2xl font-bold text-white">PDF Editor</h1>
+              <span className="text-xs bg-green-500 text-white px-2 py-1 rounded">
+                v{VERSION}
+              </span>
             </div>
             <a
               href="/"
@@ -131,6 +140,13 @@ export default function EditorPage() {
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-5xl mx-auto">
           
+          {/* DEBUG INFO - Visible on page */}
+          <div className="mb-4 p-3 bg-blue-900/30 border border-blue-500 rounded-lg text-sm">
+            <div className="text-blue-300">
+              <strong>🔧 Debug Info:</strong> Version {VERSION} | API: {API_URL}
+            </div>
+          </div>
+
           {/* Status Message */}
           {message && (
             <div className="mb-6 p-4 bg-white/10 backdrop-blur-lg rounded-xl border border-white/20">
@@ -250,7 +266,7 @@ export default function EditorPage() {
       <footer className="border-t border-white/10 bg-black/20 backdrop-blur-lg mt-16">
         <div className="container mx-auto px-4 py-6">
           <p className="text-center text-purple-300 text-sm">
-            🚀 Built with Next.js & Django | Your files are automatically deleted after 24 hours
+            🚀 Built with Next.js & Django | v{VERSION} | Connected to Railway
           </p>
         </div>
       </footer>
