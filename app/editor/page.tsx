@@ -3,6 +3,9 @@
 import { useState } from 'react';
 import { Upload, Download, Search, Trash2, FileText } from 'lucide-react';
 
+// Hardcoded API URL - Replace with env var later
+const API_URL = 'https://positive-creativity-production.up.railway.app/api';
+
 export default function EditorPage() {
   const [file, setFile] = useState<File | null>(null);
   const [fileUrl, setFileUrl] = useState<string>('');
@@ -25,18 +28,9 @@ export default function EditorPage() {
     formData.append('file', uploadedFile);
 
     try {
-      // Force use Railway URL if environment variable exists
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      console.log('🚀 Uploading to:', API_URL);
       
-      if (!apiUrl) {
-        setMessage('❌ Error: API URL not configured. Please set NEXT_PUBLIC_API_URL environment variable.');
-        setLoading(false);
-        return;
-      }
-      
-      console.log('🚀 Uploading to:', apiUrl);
-      
-      const response = await fetch(`${apiUrl}/documents/`, {
+      const response = await fetch(`${API_URL}/documents/`, {
         method: 'POST',
         body: formData,
       });
@@ -72,16 +66,8 @@ export default function EditorPage() {
     setMessage('Processing...');
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      
-      if (!apiUrl) {
-        setMessage('❌ Error: API URL not configured');
-        setLoading(false);
-        return;
-      }
-      
       const response = await fetch(
-        `${apiUrl}/documents/${documentId}/find_replace/`,
+        `${API_URL}/documents/${documentId}/find_replace/`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -108,14 +94,7 @@ export default function EditorPage() {
       return;
     }
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-    
-    if (!apiUrl) {
-      setMessage('❌ Error: API URL not configured');
-      return;
-    }
-    
-    window.open(`${apiUrl}/documents/${documentId}/download/`, '_blank');
+    window.open(`${API_URL}/documents/${documentId}/download/`, '_blank');
     setMessage('📥 Downloading...');
   };
 
