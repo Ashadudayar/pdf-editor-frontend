@@ -25,7 +25,17 @@ export default function EditorPage() {
     formData.append('file', uploadedFile);
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+      // Force use Railway URL if environment variable exists
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      
+      if (!apiUrl) {
+        setMessage('❌ Error: API URL not configured. Please set NEXT_PUBLIC_API_URL environment variable.');
+        setLoading(false);
+        return;
+      }
+      
+      console.log('🚀 Uploading to:', apiUrl);
+      
       const response = await fetch(`${apiUrl}/documents/`, {
         method: 'POST',
         body: formData,
@@ -62,7 +72,14 @@ export default function EditorPage() {
     setMessage('Processing...');
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      
+      if (!apiUrl) {
+        setMessage('❌ Error: API URL not configured');
+        setLoading(false);
+        return;
+      }
+      
       const response = await fetch(
         `${apiUrl}/documents/${documentId}/find_replace/`,
         {
@@ -91,7 +108,13 @@ export default function EditorPage() {
       return;
     }
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    
+    if (!apiUrl) {
+      setMessage('❌ Error: API URL not configured');
+      return;
+    }
+    
     window.open(`${apiUrl}/documents/${documentId}/download/`, '_blank');
     setMessage('📥 Downloading...');
   };
