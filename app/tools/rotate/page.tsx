@@ -1,332 +1,275 @@
 'use client';
 
-import { useState } from 'react';
-import { Upload, RotateCw, Download, ArrowLeft, Loader2 } from 'lucide-react';
-import Link from 'next/link';
+import { useState, useEffect } from 'react';
+import { Upload, Download, Search, Trash2, FileText } from 'lucide-react';
 
-export default function RotatePage() {
+// VERSION 3.0 - FINAL FIX
+const VERSION = '3.0';
+const API_URL = 'https://positive-creativity-production.up.railway.app/api';
+
+export default function EditorPage() {
   const [file, setFile] = useState<File | null>(null);
+  const [fileUrl, setFileUrl] = useState<string>('');
   const [documentId, setDocumentId] = useState<string>('');
   const [loading, setLoading] = useState(false);
-  const [rotatedFileUrl, setRotatedFileUrl] = useState<string>('');
-  const [angle, setAngle] = useState<number>(90);
-  const [pageMode, setPageMode] = useState<'all' | 'specific'>('all');
-  const [specificPages, setSpecificPages] = useState<string>('');
-  const [pageCount, setPageCount] = useState<number>(0);
+  const [message, setMessage] = useState('');
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    console.log('🔥🔥🔥 EDITOR VERSION ' + VERSION + ' LOADED 🔥🔥🔥');
+    console.log('🌐 API URL:', API_URL);
+    console.log('🕐 Loaded at:', new Date().toISOString());
+  }, []);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
     if (!uploadedFile) return;
 
-    if (uploadedFile.type !== 'application/pdf') {
-      alert('Please upload a PDF file');
-      return;
-    }
-
+    const url = URL.createObjectURL(uploadedFile);
     setFile(uploadedFile);
+    setFileUrl(url);
     setLoading(true);
-    setRotatedFileUrl('');
+    setMessage('Uploading...');
 
     const formData = new FormData();
     formData.append('file', uploadedFile);
 
     try {
-      const response = await fetch('http://localhost:8000/api/documents/', {
+      console.log('📤 Uploading to:', API_URL);
+      
+      const response = await fetch(`${API_URL}/documents/`, {
         method: 'POST',
         body: formData,
       });
 
-      if (!response.ok) throw new Error('Upload failed');
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
 
       const data = await response.json();
       setDocumentId(data.id);
-      setPageCount(data.page_count || 0);
-      alert('✅ PDF uploaded successfully!');
+      setMessage('✅ Uploaded successfully!');
     } catch (error) {
+      setMessage('❌ Upload failed: ' + (error as Error).message);
       console.error('Upload error:', error);
-      alert('❌ Failed to upload PDF: ' + error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRotate = async () => {
+  const handleFindReplace = async () => {
     if (!documentId) {
-      alert('Please upload a PDF first');
+      setMessage('⚠️ Please upload a file first');
       return;
     }
 
-    // Validate specific pages input
-    if (pageMode === 'specific' && !specificPages.trim()) {
-      alert('Please enter page numbers');
-      return;
-    }
+    const findText = prompt('Text to find:');
+    if (!findText) return;
+
+    const replaceText = prompt('Replace with:');
+    if (replaceText === null) return;
 
     setLoading(true);
-    setRotatedFileUrl('');
-
-    const requestData = {
-      angle: angle,
-      pages: pageMode === 'all' ? 'all' : specificPages.trim(),
-    };
+    setMessage('Processing...');
 
     try {
       const response = await fetch(
-        `http://localhost:8000/api/documents/${documentId}/rotate/`,
+        `${API_URL}/documents/${documentId}/find_replace/`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestData),
+          body: JSON.stringify({ find_text: findText, replace_text: replaceText }),
         }
       );
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Rotation failed');
+        throw new Error('Find & Replace failed');
       }
 
-      const data = await response.json();
-      setRotatedFileUrl(data.edited_file);
-      alert(`✅ ${data.message}\n📄 ${data.pages_rotated} page(s) rotated`);
+      setMessage('✅ Text replaced successfully!');
     } catch (error) {
-      console.error('Rotation error:', error);
-      alert('❌ Failed to rotate PDF: ' + error);
+      setMessage('❌ Failed: ' + (error as Error).message);
+      console.error('Find/Replace error:', error);
     } finally {
       setLoading(false);
     }
   };
 
   const handleDownload = () => {
-    if (rotatedFileUrl) {
-      window.open(rotatedFileUrl, '_blank');
+    if (!documentId) {
+      setMessage('⚠️ Please upload a file first');
+      return;
+    }
+
+    window.open(`${API_URL}/documents/${documentId}/download/`, '_blank');
+    setMessage('📥 Downloading...');
+  };
+
+  const handleReset = () => {
+    setFile(null);
+    setFileUrl('');
+    setDocumentId('');
+    setMessage('');
+    if (fileUrl) {
+      URL.revokeObjectURL(fileUrl);
     }
   };
 
-  const resetForm = () => {
-    setFile(null);
-    setDocumentId('');
-    setRotatedFileUrl('');
-    setAngle(90);
-    setPageMode('all');
-    setSpecificPages('');
-    setPageCount(0);
-  };
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-8">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <Link
-              href="/tools"
-              className="inline-flex items-center text-purple-300 hover:text-purple-200 mb-4"
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+      {/* Header with VERSION NUMBER */}
+      <header className="border-b border-white/10 bg-black/20 backdrop-blur-lg">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <FileText className="w-8 h-8 text-purple-400" />
+              <h1 className="text-2xl font-bold text-white">PDF Editor</h1>
+              <span className="text-xs bg-green-500 text-white px-2 py-1 rounded">
+                v{VERSION}
+              </span>
+            </div>
+            <a
+              href="/"
+              className="text-purple-400 hover:text-purple-300 transition-colors"
             >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Tools
-            </Link>
-            <h1 className="text-4xl font-bold text-white flex items-center gap-3">
-              <RotateCw className="w-10 h-10 text-purple-400" />
-              Rotate PDF Pages
-            </h1>
-            <p className="text-purple-200 mt-2">
-              Rotate all pages or specific pages of your PDF
-            </p>
+              ← Back to Home
+            </a>
           </div>
         </div>
+      </header>
 
-        {/* Upload Section */}
-        {!file ? (
-          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-12 mb-6 border border-white/20">
-            <input
-              type="file"
-              accept=".pdf"
-              onChange={handleFileUpload}
-              className="hidden"
-              id="file-upload"
-              disabled={loading}
-            />
-            <label
-              htmlFor="file-upload"
-              className="cursor-pointer block text-center"
-            >
-              <Upload className="w-16 h-16 text-purple-400 mx-auto mb-4" />
-              <p className="text-white text-xl mb-2">
-                Drop PDF here or click to upload
-              </p>
-              <p className="text-purple-300 text-sm">Maximum file size: 50MB</p>
-            </label>
-          </div>
-        ) : (
-          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 mb-6 border border-white/20">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-purple-500/20 rounded-lg flex items-center justify-center">
-                  <Upload className="w-6 h-6 text-purple-400" />
-                </div>
-                <div>
-                  <p className="text-white font-medium">{file.name}</p>
-                  <p className="text-purple-300 text-sm">
-                    {pageCount > 0 && `${pageCount} pages • `}
-                    {(file.size / 1024 / 1024).toFixed(2)} MB
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={resetForm}
-                className="text-purple-300 hover:text-white transition"
-              >
-                Change File
-              </button>
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-5xl mx-auto">
+          
+          {/* DEBUG INFO - Visible on page */}
+          <div className="mb-4 p-3 bg-blue-900/30 border border-blue-500 rounded-lg text-sm">
+            <div className="text-blue-300">
+              <strong>🔧 Debug Info:</strong> Version {VERSION} | API: {API_URL}
             </div>
           </div>
-        )}
 
-        {/* Rotation Options */}
-        {file && documentId && (
-          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 mb-6 border border-white/20">
-            <h2 className="text-2xl font-bold text-white mb-6">
-              Rotation Options
-            </h2>
+          {/* Status Message */}
+          {message && (
+            <div className="mb-6 p-4 bg-white/10 backdrop-blur-lg rounded-xl border border-white/20">
+              <p className="text-white text-center">{message}</p>
+            </div>
+          )}
 
-            {/* Angle Selection */}
-            <div className="mb-6">
-              <label className="block text-white font-medium mb-3">
-                Rotation Angle
+          {/* Upload Area */}
+          {!file ? (
+            <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-12 border-2 border-dashed border-purple-400/50 hover:border-purple-400 transition-all mb-8">
+              <input
+                type="file"
+                accept=".pdf"
+                onChange={handleUpload}
+                className="hidden"
+                id="file-upload"
+                disabled={loading}
+              />
+              <label htmlFor="file-upload" className="cursor-pointer block">
+                <Upload className="w-20 h-20 text-purple-400 mx-auto mb-4" />
+                <p className="text-white text-xl text-center font-semibold mb-2">
+                  Drop PDF or Click to Upload
+                </p>
+                <p className="text-purple-300 text-center text-sm">
+                  Maximum file size: 50MB
+                </p>
               </label>
-              <div className="grid grid-cols-4 gap-3">
-                {[90, 180, 270, -90].map((deg) => (
+            </div>
+          ) : (
+            <>
+              {/* File Info */}
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 mb-6 border border-white/20">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <FileText className="w-6 h-6 text-purple-400" />
+                    <div>
+                      <p className="text-white font-semibold">{file.name}</p>
+                      <p className="text-purple-300 text-sm">
+                        {(file.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                    </div>
+                  </div>
                   <button
-                    key={deg}
-                    onClick={() => setAngle(deg)}
-                    className={`p-4 rounded-xl transition-all ${
-                      angle === deg
-                        ? 'bg-purple-500 text-white border-2 border-purple-300'
-                        : 'bg-white/5 text-purple-200 border border-white/20 hover:bg-white/10'
-                    }`}
+                    onClick={handleReset}
+                    className="p-2 bg-red-500/20 hover:bg-red-500/30 rounded-lg transition-colors"
                   >
-                    <RotateCw
-                      className="w-8 h-8 mx-auto mb-2"
-                      style={{ transform: `rotate(${deg}deg)` }}
-                    />
-                    <span className="block text-sm font-medium">
-                      {deg > 0 ? `+${deg}°` : `${deg}°`}
-                    </span>
+                    <Trash2 className="w-5 h-5 text-red-400" />
                   </button>
-                ))}
+                </div>
               </div>
-            </div>
 
-            {/* Page Selection */}
-            <div className="mb-6">
-              <label className="block text-white font-medium mb-3">
-                Pages to Rotate
-              </label>
-              <div className="space-y-3">
-                <label className="flex items-center gap-3 p-4 rounded-xl bg-white/5 border border-white/20 cursor-pointer hover:bg-white/10 transition">
-                  <input
-                    type="radio"
-                    name="pageMode"
-                    checked={pageMode === 'all'}
-                    onChange={() => setPageMode('all')}
-                    className="w-4 h-4"
-                  />
-                  <div>
-                    <span className="text-white font-medium">All Pages</span>
-                    <p className="text-purple-300 text-sm">
-                      Rotate every page in the document
-                    </p>
+              {/* PDF Preview */}
+              {fileUrl && (
+                <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 mb-6 border border-white/20">
+                  <div className="bg-white rounded-lg overflow-hidden" style={{ height: '600px' }}>
+                    <iframe
+                      src={fileUrl}
+                      className="w-full h-full"
+                      title="PDF Preview"
+                    />
                   </div>
-                </label>
-
-                <label className="flex items-start gap-3 p-4 rounded-xl bg-white/5 border border-white/20 cursor-pointer hover:bg-white/10 transition">
-                  <input
-                    type="radio"
-                    name="pageMode"
-                    checked={pageMode === 'specific'}
-                    onChange={() => setPageMode('specific')}
-                    className="w-4 h-4 mt-1"
-                  />
-                  <div className="flex-1">
-                    <span className="text-white font-medium">
-                      Specific Pages
-                    </span>
-                    <p className="text-purple-300 text-sm mb-3">
-                      Rotate only selected pages
-                    </p>
-                    {pageMode === 'specific' && (
-                      <input
-                        type="text"
-                        value={specificPages}
-                        onChange={(e) => setSpecificPages(e.target.value)}
-                        placeholder="e.g., 1,3,5 or 1-5"
-                        className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      />
-                    )}
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            {/* Rotate Button */}
-            <button
-              onClick={handleRotate}
-              disabled={loading}
-              className="w-full bg-gradient-to-r from-purple-500 to-pink-500 text-white py-4 rounded-xl font-semibold hover:from-purple-600 hover:to-pink-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Rotating...
-                </>
-              ) : (
-                <>
-                  <RotateCw className="w-5 h-5" />
-                  Rotate PDF
-                </>
+                </div>
               )}
-            </button>
-          </div>
-        )}
 
-        {/* Download Section */}
-        {rotatedFileUrl && (
-          <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 backdrop-blur-lg rounded-2xl p-8 border border-green-500/30">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Download className="w-8 h-8 text-green-400" />
+              {/* Tools */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <button
+                  onClick={handleFindReplace}
+                  disabled={loading || !documentId}
+                  className="flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white p-4 rounded-xl font-semibold transition-all transform hover:scale-105 disabled:hover:scale-100"
+                >
+                  <Search className="w-5 h-5" />
+                  Find & Replace
+                </button>
+
+                <button
+                  onClick={handleDownload}
+                  disabled={!documentId}
+                  className="flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white p-4 rounded-xl font-semibold transition-all transform hover:scale-105 disabled:hover:scale-100"
+                >
+                  <Download className="w-5 h-5" />
+                  Download PDF
+                </button>
+
+                <button
+                  onClick={handleReset}
+                  className="flex items-center justify-center gap-2 bg-purple-500 hover:bg-purple-600 text-white p-4 rounded-xl font-semibold transition-all transform hover:scale-105"
+                >
+                  <Upload className="w-5 h-5" />
+                  Upload New
+                </button>
               </div>
-              <h3 className="text-2xl font-bold text-white mb-2">
-                PDF Rotated Successfully!
-              </h3>
-              <p className="text-green-200 mb-6">
-                Your rotated PDF is ready to download
-              </p>
-              <button
-                onClick={handleDownload}
-                className="bg-green-500 text-white px-8 py-3 rounded-xl font-semibold hover:bg-green-600 transition-all inline-flex items-center gap-2"
-              >
-                <Download className="w-5 h-5" />
-                Download Rotated PDF
-              </button>
-            </div>
-          </div>
-        )}
 
-        {/* Instructions */}
-        <div className="bg-white/5 backdrop-blur-lg rounded-2xl p-6 mt-6 border border-white/10">
-          <h3 className="text-lg font-semibold text-white mb-3">
-            💡 How to Use
-          </h3>
-          <ul className="space-y-2 text-purple-200">
-            <li>• Upload your PDF file</li>
-            <li>• Choose rotation angle (90°, 180°, 270°, or -90°)</li>
-            <li>• Select all pages or specific pages to rotate</li>
-            <li>• For specific pages, use formats like "1,3,5" or "1-5"</li>
-            <li>• Click "Rotate PDF" and download your result</li>
-          </ul>
+              {/* Loading Indicator */}
+              {loading && (
+                <div className="mt-6 flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-400"></div>
+                </div>
+              )}
+
+              {/* Instructions */}
+              <div className="mt-8 bg-white/5 backdrop-blur-lg rounded-xl p-6 border border-white/10">
+                <h3 className="text-white font-semibold mb-3">📋 How to Use:</h3>
+                <ol className="text-purple-300 space-y-2 text-sm">
+                  <li>1. Your PDF has been uploaded successfully</li>
+                  <li>2. Click "Find & Replace" to edit text in the PDF</li>
+                  <li>3. Click "Download PDF" to get your edited file</li>
+                  <li>4. Click "Upload New" to start with a different file</li>
+                </ol>
+              </div>
+            </>
+          )}
         </div>
       </div>
+
+      {/* Footer */}
+      <footer className="border-t border-white/10 bg-black/20 backdrop-blur-lg mt-16">
+        <div className="container mx-auto px-4 py-6">
+          <p className="text-center text-purple-300 text-sm">
+            🚀 Built with Next.js & Django | v{VERSION} | Connected to Railway
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }
