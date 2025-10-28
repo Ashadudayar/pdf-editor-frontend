@@ -1,54 +1,56 @@
 'use client';
 
-import { useState } from 'react';
-import { Upload, Search, Download, ArrowLeft, Loader2, CheckCircle, FileText, Eye } from 'lucide-react';
-import Link from 'next/link';
+import { useState, useEffect } from 'react';
+import { Upload, Download, Search, Trash2, FileText } from 'lucide-react';
 
-export default function FindReplacePage() {
+// VERSION 3.0 - FINAL FIX
+const VERSION = '3.0';
+const API_URL = 'https://positive-creativity-production.up.railway.app/api';
+
+export default function EditorPage() {
   const [file, setFile] = useState<File | null>(null);
+  const [fileUrl, setFileUrl] = useState<string>('');
   const [documentId, setDocumentId] = useState<string>('');
-  const [findText, setFindText] = useState<string>('');
-  const [replaceText, setReplaceText] = useState<string>('');
   const [loading, setLoading] = useState(false);
-  const [editedFileUrl, setEditedFileUrl] = useState<string>('');
-  const [originalFileUrl, setOriginalFileUrl] = useState<string>('');
-  const [message, setMessage] = useState<string>('');
-  const [showPreview, setShowPreview] = useState(false);
+  const [message, setMessage] = useState('');
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => {
+    console.log('🔥🔥🔥 EDITOR VERSION ' + VERSION + ' LOADED 🔥🔥🔥');
+    console.log('🌐 API URL:', API_URL);
+    console.log('🕐 Loaded at:', new Date().toISOString());
+  }, []);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
     if (!uploadedFile) return;
 
-    if (uploadedFile.type !== 'application/pdf') {
-      alert('Please upload a PDF file');
-      return;
-    }
-
+    const url = URL.createObjectURL(uploadedFile);
     setFile(uploadedFile);
+    setFileUrl(url);
     setLoading(true);
-    setEditedFileUrl('');
-    setOriginalFileUrl('');
-    setMessage('');
+    setMessage('Uploading...');
 
     const formData = new FormData();
     formData.append('file', uploadedFile);
 
     try {
-      const response = await fetch('http://localhost:8000/api/documents/', {
+      console.log('📤 Uploading to:', API_URL);
+      
+      const response = await fetch(`${API_URL}/documents/`, {
         method: 'POST',
         body: formData,
       });
 
-      if (!response.ok) throw new Error('Upload failed');
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
 
       const data = await response.json();
-      console.log('Upload response:', data);
       setDocumentId(data.id);
-      setOriginalFileUrl(data.original_file);
-      setMessage('✅ PDF uploaded successfully!');
+      setMessage('✅ Uploaded successfully!');
     } catch (error) {
+      setMessage('❌ Upload failed: ' + (error as Error).message);
       console.error('Upload error:', error);
-      alert('❌ Failed to upload PDF: ' + error);
     } finally {
       setLoading(false);
     }
@@ -56,338 +58,218 @@ export default function FindReplacePage() {
 
   const handleFindReplace = async () => {
     if (!documentId) {
-      alert('Please upload a PDF first');
+      setMessage('⚠️ Please upload a file first');
       return;
     }
 
-    if (!findText.trim()) {
-      alert('Please enter text to find');
-      return;
-    }
+    const findText = prompt('Text to find:');
+    if (!findText) return;
+
+    const replaceText = prompt('Replace with:');
+    if (replaceText === null) return;
 
     setLoading(true);
-    setMessage('');
-    setEditedFileUrl('');
+    setMessage('Processing...');
 
     try {
       const response = await fetch(
-        `http://localhost:8000/api/documents/${documentId}/find_replace/`,
+        `${API_URL}/documents/${documentId}/find_replace/`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            find_text: findText,
-            replace_text: replaceText,
-          }),
+          body: JSON.stringify({ find_text: findText, replace_text: replaceText }),
         }
       );
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Find & Replace failed');
+        throw new Error('Find & Replace failed');
       }
 
-      const data = await response.json();
-      console.log('Find/Replace response:', data);
-      
-      if (data.edited_file) {
-        setEditedFileUrl(data.edited_file);
-        setMessage(`✅ Successfully replaced "${findText}" with "${replaceText}"!`);
-      } else {
-        setMessage('⚠️ Text not found in the PDF');
-      }
+      setMessage('✅ Text replaced successfully!');
     } catch (error) {
-      console.error('Find & Replace error:', error);
-      alert('❌ Failed to process PDF: ' + error);
+      setMessage('❌ Failed: ' + (error as Error).message);
+      console.error('Find/Replace error:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleViewOriginal = () => {
-  if (documentId) {
-    // Use download endpoint instead of direct media URL
-    window.open(`http://localhost:8000/api/documents/${documentId}/download_original/`, '_blank');
-  }
-};
+  const handleDownload = () => {
+    if (!documentId) {
+      setMessage('⚠️ Please upload a file first');
+      return;
+    }
 
-  const handleDownloadEdited = () => {
-  if (documentId) {
-    window.open(`http://localhost:8000/api/documents/${documentId}/download/`, '_blank');
-  }
-};
+    window.open(`${API_URL}/documents/${documentId}/download/`, '_blank');
+    setMessage('📥 Downloading...');
+  };
 
-  
-  
-  
-
-  const resetForm = () => {
+  const handleReset = () => {
     setFile(null);
+    setFileUrl('');
     setDocumentId('');
-    setFindText('');
-    setReplaceText('');
-    setEditedFileUrl('');
-    setOriginalFileUrl('');
     setMessage('');
-    setShowPreview(false);
+    if (fileUrl) {
+      URL.revokeObjectURL(fileUrl);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-8">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <Link
-              href="/tools"
-              className="inline-flex items-center text-purple-300 hover:text-purple-200 mb-4"
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+      {/* Header with VERSION NUMBER */}
+      <header className="border-b border-white/10 bg-black/20 backdrop-blur-lg">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <FileText className="w-8 h-8 text-purple-400" />
+              <h1 className="text-2xl font-bold text-white">PDF Editor</h1>
+              <span className="text-xs bg-green-500 text-white px-2 py-1 rounded">
+                v{VERSION}
+              </span>
+            </div>
+            <a
+              href="/"
+              className="text-purple-400 hover:text-purple-300 transition-colors"
             >
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Tools
-            </Link>
-            <h1 className="text-4xl font-bold text-white flex items-center gap-3">
-              <Search className="w-10 h-10 text-purple-400" />
-              Find & Replace Text
-            </h1>
-            <p className="text-purple-200 mt-2">
-              Search and replace text in your PDF documents
-            </p>
+              ← Back to Home
+            </a>
           </div>
         </div>
+      </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left Column - Upload & Controls */}
-          <div className="space-y-6">
-            {/* Upload Section */}
-            {!file ? (
-              <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-12 border border-white/20">
-                <input
-                  type="file"
-                  accept=".pdf"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                  id="file-upload"
-                  disabled={loading}
-                />
-                <label
-                  htmlFor="file-upload"
-                  className="cursor-pointer block text-center"
-                >
-                  <Upload className="w-16 h-16 text-purple-400 mx-auto mb-4" />
-                  <p className="text-white text-xl mb-2">
-                    Drop PDF here or click to upload
-                  </p>
-                  <p className="text-purple-300 text-sm">
-                    Maximum file size: 50MB
-                  </p>
-                </label>
-              </div>
-            ) : (
-              <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 border border-white/20">
-                <div className="flex items-center justify-between mb-4">
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-5xl mx-auto">
+          
+          {/* DEBUG INFO - Visible on page */}
+          <div className="mb-4 p-3 bg-blue-900/30 border border-blue-500 rounded-lg text-sm">
+            <div className="text-blue-300">
+              <strong>🔧 Debug Info:</strong> Version {VERSION} | API: {API_URL}
+            </div>
+          </div>
+
+          {/* Status Message */}
+          {message && (
+            <div className="mb-6 p-4 bg-white/10 backdrop-blur-lg rounded-xl border border-white/20">
+              <p className="text-white text-center">{message}</p>
+            </div>
+          )}
+
+          {/* Upload Area */}
+          {!file ? (
+            <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-12 border-2 border-dashed border-purple-400/50 hover:border-purple-400 transition-all mb-8">
+              <input
+                type="file"
+                accept=".pdf"
+                onChange={handleUpload}
+                className="hidden"
+                id="file-upload"
+                disabled={loading}
+              />
+              <label htmlFor="file-upload" className="cursor-pointer block">
+                <Upload className="w-20 h-20 text-purple-400 mx-auto mb-4" />
+                <p className="text-white text-xl text-center font-semibold mb-2">
+                  Drop PDF or Click to Upload
+                </p>
+                <p className="text-purple-300 text-center text-sm">
+                  Maximum file size: 50MB
+                </p>
+              </label>
+            </div>
+          ) : (
+            <>
+              {/* File Info */}
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 mb-6 border border-white/20">
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-purple-500/20 rounded-lg flex items-center justify-center">
-                      <FileText className="w-6 h-6 text-purple-400" />
-                    </div>
+                    <FileText className="w-6 h-6 text-purple-400" />
                     <div>
-                      <p className="text-white font-medium">{file.name}</p>
+                      <p className="text-white font-semibold">{file.name}</p>
                       <p className="text-purple-300 text-sm">
                         {(file.size / 1024 / 1024).toFixed(2)} MB
                       </p>
                     </div>
                   </div>
                   <button
-                    onClick={resetForm}
-                    className="text-purple-300 hover:text-white transition text-sm"
+                    onClick={handleReset}
+                    className="p-2 bg-red-500/20 hover:bg-red-500/30 rounded-lg transition-colors"
                   >
-                    Change File
+                    <Trash2 className="w-5 h-5 text-red-400" />
                   </button>
                 </div>
-
-                {/* View Original PDF Button */}
-                {originalFileUrl && (
-                  <button
-                    onClick={handleViewOriginal}
-                    className="w-full bg-blue-500/20 border border-blue-500/30 text-blue-200 py-3 rounded-lg hover:bg-blue-500/30 transition flex items-center justify-center gap-2"
-                  >
-                    <Eye className="w-5 h-5" />
-                    View Original PDF
-                  </button>
-                )}
               </div>
-            )}
 
-            {/* Find & Replace Form */}
-            {file && documentId && (
-              <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20">
-                <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-                  <Search className="w-6 h-6 text-purple-400" />
+              {/* PDF Preview */}
+              {fileUrl && (
+                <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 mb-6 border border-white/20">
+                  <div className="bg-white rounded-lg overflow-hidden" style={{ height: '600px' }}>
+                    <iframe
+                      src={fileUrl}
+                      className="w-full h-full"
+                      title="PDF Preview"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Tools */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <button
+                  onClick={handleFindReplace}
+                  disabled={loading || !documentId}
+                  className="flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white p-4 rounded-xl font-semibold transition-all transform hover:scale-105 disabled:hover:scale-100"
+                >
+                  <Search className="w-5 h-5" />
                   Find & Replace
-                </h2>
+                </button>
 
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-white font-medium mb-2">
-                      Find text
-                    </label>
-                    <input
-                      type="text"
-                      value={findText}
-                      onChange={(e) => setFindText(e.target.value)}
-                      placeholder="Enter text to find..."
-                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                  </div>
+                <button
+                  onClick={handleDownload}
+                  disabled={!documentId}
+                  className="flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white p-4 rounded-xl font-semibold transition-all transform hover:scale-105 disabled:hover:scale-100"
+                >
+                  <Download className="w-5 h-5" />
+                  Download PDF
+                </button>
 
-                  <div>
-                    <label className="block text-white font-medium mb-2">
-                      Replace with
-                    </label>
-                    <input
-                      type="text"
-                      value={replaceText}
-                      onChange={(e) => setReplaceText(e.target.value)}
-                      placeholder="Enter replacement text..."
-                      className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                  </div>
-
-                  <button
-                    onClick={handleFindReplace}
-                    disabled={loading || !findText.trim()}
-                    className="w-full bg-gradient-to-r from-blue-500 to-cyan-500 text-white py-4 rounded-xl font-semibold hover:from-blue-600 hover:to-cyan-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <Search className="w-5 h-5" />
-                        Replace Text
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                {/* Success Message */}
-                {message && (
-                  <div className="mt-4 p-4 bg-green-500/20 border border-green-500/30 rounded-lg">
-                    <p className="text-green-200 flex items-center gap-2">
-                      <CheckCircle className="w-5 h-5" />
-                      {message}
-                    </p>
-                  </div>
-                )}
+                <button
+                  onClick={handleReset}
+                  className="flex items-center justify-center gap-2 bg-purple-500 hover:bg-purple-600 text-white p-4 rounded-xl font-semibold transition-all transform hover:scale-105"
+                >
+                  <Upload className="w-5 h-5" />
+                  Upload New
+                </button>
               </div>
-            )}
-          </div>
 
-          {/* Right Column - Status & Download */}
-          <div className="space-y-6">
-            {/* Before Edit - View Original */}
-            {file && !editedFileUrl && (
-              <div className="bg-gradient-to-br from-blue-500/20 to-cyan-500/20 backdrop-blur-lg rounded-2xl p-8 border border-blue-500/30">
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <FileText className="w-8 h-8 text-blue-400" />
-                  </div>
-                  <h3 className="text-2xl font-bold text-white mb-2">
-                    Original PDF Uploaded
-                  </h3>
-                  <p className="text-blue-200 mb-4">
-                    Your PDF is ready for text replacement
-                  </p>
-                  <p className="text-blue-300 text-sm mb-6">
-                    Enter text to find and click "Replace Text" below
-                  </p>
-                  {originalFileUrl && (
-                    <button
-                      onClick={handleViewOriginal}
-                      className="bg-blue-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-blue-600 transition-all inline-flex items-center gap-2"
-                    >
-                      <Eye className="w-5 h-5" />
-                      View Original PDF
-                    </button>
-                  )}
+              {/* Loading Indicator */}
+              {loading && (
+                <div className="mt-6 flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-400"></div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* After Edit - Download Edited */}
-            {editedFileUrl && (
-              <div className="bg-gradient-to-br from-green-500/20 to-emerald-500/20 backdrop-blur-lg rounded-2xl p-8 border border-green-500/30">
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <CheckCircle className="w-8 h-8 text-green-400" />
-                  </div>
-                  <h3 className="text-2xl font-bold text-white mb-2">
-                    Text Replaced Successfully!
-                  </h3>
-                  <p className="text-green-200 mb-6">
-                    Your edited PDF is ready to download
-                  </p>
-                  
-                  <div className="space-y-3">
-                    <button
-                      onClick={handleDownloadEdited}
-                      className="w-full bg-green-500 text-white px-8 py-3 rounded-xl font-semibold hover:bg-green-600 transition-all inline-flex items-center justify-center gap-2"
-                    >
-                      <Download className="w-5 h-5" />
-                      Download Edited PDF
-                    </button>
-                    
-                    {originalFileUrl && (
-                      <button
-                        onClick={handleViewOriginal}
-                        className="w-full bg-blue-500/30 border border-blue-400/30 text-blue-200 px-6 py-2 rounded-lg hover:bg-blue-500/40 transition-all inline-flex items-center justify-center gap-2 text-sm"
-                      >
-                        <Eye className="w-4 h-4" />
-                        View Original (Compare)
-                      </button>
-                    )}
-                  </div>
-                </div>
+              {/* Instructions */}
+              <div className="mt-8 bg-white/5 backdrop-blur-lg rounded-xl p-6 border border-white/10">
+                <h3 className="text-white font-semibold mb-3">📋 How to Use:</h3>
+                <ol className="text-purple-300 space-y-2 text-sm">
+                  <li>1. Your PDF has been uploaded successfully</li>
+                  <li>2. Click "Find & Replace" to edit text in the PDF</li>
+                  <li>3. Click "Download PDF" to get your edited file</li>
+                  <li>4. Click "Upload New" to start with a different file</li>
+                </ol>
               </div>
-            )}
-
-            {/* Instructions */}
-            <div className="bg-white/5 backdrop-blur-lg rounded-2xl p-6 border border-white/10">
-              <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
-                <Search className="w-5 h-5 text-purple-400" />
-                How to Use
-              </h3>
-              <ul className="space-y-2 text-purple-200 text-sm">
-                <li className="flex items-start gap-2">
-                  <span className="text-purple-400 mt-1">1.</span>
-                  <span>Upload your PDF file</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-purple-400 mt-1">2.</span>
-                  <span>Click "View Original PDF" to check your document</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-purple-400 mt-1">3.</span>
-                  <span>Enter the text you want to find</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-purple-400 mt-1">4.</span>
-                  <span>Enter the replacement text</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-purple-400 mt-1">5.</span>
-                  <span>Click "Replace Text" to process</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-purple-400 mt-1">6.</span>
-                  <span>Download your edited PDF</span>
-                </li>
-              </ul>
-            </div>
-          </div>
+            </>
+          )}
         </div>
       </div>
+
+      {/* Footer */}
+      <footer className="border-t border-white/10 bg-black/20 backdrop-blur-lg mt-16">
+        <div className="container mx-auto px-4 py-6">
+          <p className="text-center text-purple-300 text-sm">
+            🚀 Built with Next.js & Django | v{VERSION} | Connected to Railway
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }
