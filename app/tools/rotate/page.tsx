@@ -140,12 +140,7 @@ export default function EditorPage() {
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-5xl mx-auto">
           
-          {/* DEBUG INFO - Visible on page */}
-          <div className="mb-4 p-3 bg-blue-900/30 border border-blue-500 rounded-lg text-sm">
-            <div className="text-blue-300">
-              <strong>🔧 Debug Info:</strong> Version {VERSION} | API: {API_URL}
-            </div>
-          </div>
+          
 
           {/* Status Message */}
           {message && (
