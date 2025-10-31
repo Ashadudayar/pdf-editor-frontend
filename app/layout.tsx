@@ -1,10 +1,7 @@
-'use client';
-
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-import { useEffect } from 'react';
 import Script from 'next/script';
+import "./globals.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,24 +13,21 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const metadata: Metadata = {
+  title: "PDFDoor - Free Online PDF Editor",
+  description: "Edit PDFs online for free. Find & replace text, merge, split, and more.",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Configure PDF.js only on client-side
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      import('react-pdf').then((pdfjs) => {
-        pdfjs.pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.pdfjs.version}/build/pdf.worker.min.js`;
-      });
-    }
-  }, []);
-
   return (
     <html lang="en">
       <head>
-                <Script
+        {/* Google AdSense */}
+        <Script
           async
           src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-4540417255595648"
           crossOrigin="anonymous"
@@ -44,8 +38,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
-        
       </body>
     </html>
   );
-}"// Build: $(date)" 
+}
