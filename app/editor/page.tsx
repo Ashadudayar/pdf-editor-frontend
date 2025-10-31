@@ -3,9 +3,16 @@
 import { useState, useEffect } from 'react';
 import { Upload, Download, Search, Trash2, FileText } from 'lucide-react';
 
-// VERSION 3.0 - FINAL FIX
-const VERSION = '3.0';
+// VERSION 3.1 - WITH GOOGLE ANALYTICS
+const VERSION = '3.1';
 const API_URL = 'https://positive-creativity-production.up.railway.app/api';
+
+// Google Analytics helper functions
+const trackEvent = (eventName: string, params?: Record<string, any>) => {
+  if (typeof window !== 'undefined' && (window as any).gtag) {
+    (window as any).gtag('event', eventName, params);
+  }
+};
 
 export default function EditorPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -18,6 +25,12 @@ export default function EditorPage() {
     console.log('🔥🔥🔥 EDITOR VERSION ' + VERSION + ' LOADED 🔥🔥🔥');
     console.log('🌐 API URL:', API_URL);
     console.log('🕐 Loaded at:', new Date().toISOString());
+    
+    // Track page view
+    trackEvent('page_view', {
+      page_title: 'PDF Editor',
+      page_location: window.location.href,
+    });
   }, []);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -48,9 +61,26 @@ export default function EditorPage() {
       const data = await response.json();
       setDocumentId(data.id);
       setMessage('✅ Uploaded successfully!');
+
+      // Track successful PDF upload
+      trackEvent('pdf_upload', {
+        event_category: 'engagement',
+        event_label: uploadedFile.name,
+        file_size: uploadedFile.size,
+        file_type: uploadedFile.type,
+        value: 1
+      });
+
+      console.log('📊 Analytics: PDF upload tracked');
     } catch (error) {
       setMessage('❌ Upload failed: ' + (error as Error).message);
       console.error('Upload error:', error);
+
+      // Track upload error
+      trackEvent('exception', {
+        description: 'PDF upload failed: ' + (error as Error).message,
+        fatal: false,
+      });
     } finally {
       setLoading(false);
     }
@@ -86,9 +116,24 @@ export default function EditorPage() {
       }
 
       setMessage('✅ Text replaced successfully!');
+
+      // Track successful find & replace
+      trackEvent('tool_used', {
+        event_category: 'tools',
+        event_label: 'find_replace',
+        value: 1
+      });
+
+      console.log('📊 Analytics: Find & Replace tracked');
     } catch (error) {
       setMessage('❌ Failed: ' + (error as Error).message);
       console.error('Find/Replace error:', error);
+
+      // Track error
+      trackEvent('exception', {
+        description: 'Find & Replace failed: ' + (error as Error).message,
+        fatal: false,
+      });
     } finally {
       setLoading(false);
     }
@@ -102,9 +147,25 @@ export default function EditorPage() {
 
     window.open(`${API_URL}/documents/${documentId}/download/`, '_blank');
     setMessage('📥 Downloading...');
+
+    // Track PDF download
+    trackEvent('pdf_download', {
+      event_category: 'engagement',
+      event_label: file?.name || 'unknown',
+      value: 1
+    });
+
+    console.log('📊 Analytics: PDF download tracked');
   };
 
   const handleReset = () => {
+    // Track reset action
+    trackEvent('user_action', {
+      event_category: 'interaction',
+      event_label: 'reset_editor',
+      value: 1
+    });
+
     setFile(null);
     setFileUrl('');
     setDocumentId('');
@@ -139,8 +200,6 @@ export default function EditorPage() {
 
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-5xl mx-auto">
-          
-          
 
           {/* Status Message */}
           {message && (
@@ -261,7 +320,7 @@ export default function EditorPage() {
       <footer className="border-t border-white/10 bg-black/20 backdrop-blur-lg mt-16">
         <div className="container mx-auto px-4 py-6">
           <p className="text-center text-purple-300 text-sm">
-            🚀 Built with Next.js & Django | v{VERSION} | Connected to Railway
+            🚀 Built with Next.js & Django | v{VERSION} | 📊 Analytics Enabled
           </p>
         </div>
       </footer>
