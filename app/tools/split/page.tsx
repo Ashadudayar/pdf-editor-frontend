@@ -162,11 +162,11 @@ export default function SplitPage() {
       console.log('🔍 Document IDs to download:', documentIds);
       console.log('📦 API URL:', `${API_URL}/documents/download-multiple/`);
 
-      const response = await fetch(`${API_URL}/download-zip/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ document_ids: documentIds }),
-      });
+      const response = await fetch(`${API_URL}/documents/download-multiple/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document_ids: documentIds }),
+    });
 
       console.log('📡 Response status:', response.status);
       console.log('📡 Response headers:', response.headers);
