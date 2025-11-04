@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { 
   Combine, Scissors, RotateCw, Minimize2, Droplet, Hash,
   Unlock, Lock, Trash2, Copy, ArrowUpDown, Image as ImageIcon,
-  Images, Camera, Crop, FileText
+  Images, Camera, Crop, FileText, Wrench, EyeOff
 } from 'lucide-react';
 
 const tools = [
@@ -34,6 +34,7 @@ const tools = [
     icon: '⚡',
     tools: [
       { name: 'Compress PDF', icon: Minimize2, href: '/tools/compress', color: 'orange', desc: 'Reduce file size' },
+      { name: 'Repair PDF', icon: Wrench, href: '/tools/repair', color: 'red', desc: 'Fix corrupted or damaged PDFs' },
     ]
   },
   {
@@ -43,6 +44,7 @@ const tools = [
       { name: 'Images to PDF', icon: ImageIcon, href: '/tools/images-to-pdf', color: 'green', desc: 'JPG, PNG to PDF' },
       { name: 'PDF to Images', icon: Images, href: '/tools/pdf-to-images', color: 'blue', desc: 'PDF pages to images' },
       { name: 'Scan to PDF', icon: Camera, href: '/tools/scan-to-pdf', color: 'purple', desc: 'Scanned docs to PDF' },
+      { name: 'WORD to PDF', icon: FileText, href: '/tools/word-to-pdf', color: 'cyan', desc: 'Convert .docx documents to PDF' },
     ]
   },
   {
@@ -51,6 +53,7 @@ const tools = [
     tools: [
       { name: 'Unlock PDF', icon: Unlock, href: '/tools/unlock', color: 'green', desc: 'Remove password protection' },
       { name: 'Protect PDF', icon: Lock, href: '/tools/protect', color: 'red', desc: 'Add password protection' },
+      { name: 'Redact PDF', icon: EyeOff, href: '/tools/redact', color: 'purple', desc: 'Remove sensitive information' },
     ]
   },
   {
@@ -171,7 +174,7 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8 text-center text-white">
             <div>
-              <div className="text-4xl font-bold mb-2">16+</div>
+              <div className="text-4xl font-bold mb-2">19+</div>
               <div className="text-blue-100">PDF Tools</div>
             </div>
             <div>
