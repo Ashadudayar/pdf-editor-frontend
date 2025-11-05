@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { 
   Combine, Scissors, RotateCw, Minimize2, Droplet, Hash,
   Unlock, Lock, Trash2, Copy, ArrowUpDown, Image as ImageIcon,
-  Images, Camera, Crop, FileText, Wrench, EyeOff
+  Images, Camera, Crop, FileText, Wrench, EyeOff,
+  Presentation, FileSpreadsheet, Code, ScanText, Edit, PenTool
 } from 'lucide-react';
 
 const tools = [
@@ -27,6 +28,7 @@ const tools = [
       { name: 'Add Watermark', icon: Droplet, href: '/tools/watermark', color: 'cyan', desc: 'Add watermark to pages' },
       { name: 'Add Page Numbers', icon: Hash, href: '/tools/page-numbers', color: 'purple', desc: 'Number your pages' },
       { name: 'Crop PDF', icon: Crop, href: '/tools/crop', color: 'pink', desc: 'Remove margins and crop' },
+      { name: 'Edit PDF', icon: Edit, href: '/tools/edit-pdf', color: 'indigo', desc: 'Add text, highlight, and edit' },
     ]
   },
   {
@@ -38,13 +40,26 @@ const tools = [
     ]
   },
   {
-    category: 'Convert',
+    category: 'Convert to PDF',
     icon: '🔄',
     tools: [
       { name: 'Images to PDF', icon: ImageIcon, href: '/tools/images-to-pdf', color: 'green', desc: 'JPG, PNG to PDF' },
-      { name: 'PDF to Images', icon: Images, href: '/tools/pdf-to-images', color: 'blue', desc: 'PDF pages to images' },
       { name: 'Scan to PDF', icon: Camera, href: '/tools/scan-to-pdf', color: 'purple', desc: 'Scanned docs to PDF' },
       { name: 'WORD to PDF', icon: FileText, href: '/tools/word-to-pdf', color: 'cyan', desc: 'Convert .docx documents to PDF' },
+      { name: 'PowerPoint to PDF', icon: Presentation, href: '/tools/powerpoint-to-pdf', color: 'orange', desc: 'Convert .pptx to PDF' },
+      { name: 'Excel to PDF', icon: FileSpreadsheet, href: '/tools/excel-to-pdf', color: 'green', desc: 'Convert .xlsx to PDF' },
+      { name: 'HTML to PDF', icon: Code, href: '/tools/html-to-pdf', color: 'indigo', desc: 'Convert HTML/web pages to PDF' },
+    ]
+  },
+  {
+    category: 'Convert from PDF',
+    icon: '🔃',
+    tools: [
+      { name: 'PDF to Images', icon: Images, href: '/tools/pdf-to-images', color: 'blue', desc: 'PDF pages to images' },
+      { name: 'PDF to WORD', icon: FileText, href: '/tools/pdf-to-word', color: 'blue', desc: 'Convert PDF to .docx' },
+      { name: 'PDF to PowerPoint', icon: Presentation, href: '/tools/pdf-to-powerpoint', color: 'orange', desc: 'Convert PDF to .pptx' },
+      { name: 'PDF to Excel', icon: FileSpreadsheet, href: '/tools/pdf-to-excel', color: 'green', desc: 'Extract tables to .xlsx' },
+      { name: 'OCR PDF', icon: ScanText, href: '/tools/ocr-pdf', color: 'purple', desc: 'Extract text from scanned PDFs' },
     ]
   },
   {
@@ -54,6 +69,7 @@ const tools = [
       { name: 'Unlock PDF', icon: Unlock, href: '/tools/unlock', color: 'green', desc: 'Remove password protection' },
       { name: 'Protect PDF', icon: Lock, href: '/tools/protect', color: 'red', desc: 'Add password protection' },
       { name: 'Redact PDF', icon: EyeOff, href: '/tools/redact', color: 'purple', desc: 'Remove sensitive information' },
+      { name: 'Sign PDF', icon: PenTool, href: '/tools/sign-pdf', color: 'blue', desc: 'Add digital signature' },
     ]
   },
   {
@@ -174,7 +190,7 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8 text-center text-white">
             <div>
-              <div className="text-4xl font-bold mb-2">19+</div>
+              <div className="text-4xl font-bold mb-2">28+</div>
               <div className="text-blue-100">PDF Tools</div>
             </div>
             <div>

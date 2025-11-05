@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app</loc>
+    <lastmod>2025-11-05</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+  
+  <!-- Organize PDF Tools -->
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/merge</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/split</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/remove-pages</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/extract-pages</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/organize</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  
+  <!-- Edit PDF Tools -->
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/rotate</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/watermark</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/page-numbers</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/crop</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/edit-pdf</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  
+  <!-- Optimize PDF Tools -->
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/compress</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/repair</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  
+  <!-- Convert to PDF Tools -->
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/images-to-pdf</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/scan-to-pdf</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/word-to-pdf</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/powerpoint-to-pdf</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/excel-to-pdf</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/html-to-pdf</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  
+  <!-- Convert from PDF Tools -->
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/pdf-to-images</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/pdf-to-word</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/pdf-to-powerpoint</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/pdf-to-excel</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/ocr-pdf</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  
+  <!-- Security Tools -->
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/unlock</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/protect</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/redact</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/sign-pdf</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  
+  <!-- Compare Tools -->
+  <url>
+    <loc>https://pdf-editor-frontend-flax.vercel.app/tools/compare</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+</urlset>
