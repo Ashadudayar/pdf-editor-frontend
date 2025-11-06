@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { Upload, ArrowLeft, Download, Trash2, GripVertical } from 'lucide-react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
@@ -240,8 +240,17 @@ export default function MergePDFPage() {
 
       const mergeData = await mergeResponse.json();
       
-      if (mergeData.merged_file) {
-        setMergedUrl(mergeData.merged_file);
+      // Use download_url from backend response
+      if (mergeData.download_url) {
+        // Construct full URL
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app';
+        const fullUrl = mergeData.download_url.startsWith('http') 
+          ? mergeData.download_url 
+          : `${baseUrl}${mergeData.download_url}`;
+        
+        setMergedUrl(fullUrl);
+      } else {
+        throw new Error('No download URL received');
       }
     } catch (error) {
       console.error('Merge failed:', error);
