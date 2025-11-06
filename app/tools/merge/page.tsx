@@ -239,19 +239,26 @@ export default function MergePDFPage() {
       }
 
       const mergeData = await mergeResponse.json();
-      
-      // Use download_url from backend response
-      if (mergeData.download_url) {
-        // Construct full URL
-        const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app';
-        const fullUrl = mergeData.download_url.startsWith('http') 
-          ? mergeData.download_url 
-          : `${baseUrl}${mergeData.download_url}`;
-        
-        setMergedUrl(fullUrl);
-      } else {
-        throw new Error('No download URL received');
-      }
+
+// Use download_url from backend response
+if (mergeData.download_url) {
+  // Construct full URL - handle duplicate /api/ issue
+  let downloadUrl = mergeData.download_url;
+  
+  // If download_url starts with /api/, remove it since base URL already has /api
+  if (downloadUrl.startsWith('/api/')) {
+    downloadUrl = downloadUrl.replace('/api/', '/');
+  }
+  
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app/api';
+  const fullUrl = downloadUrl.startsWith('http') 
+    ? downloadUrl 
+    : `${baseUrl}${downloadUrl}`;
+  
+  setMergedUrl(fullUrl);
+} else {
+  throw new Error('No download URL received');
+}
     } catch (error) {
       console.error('Merge failed:', error);
       alert('Failed to merge PDFs. Please try again.');
