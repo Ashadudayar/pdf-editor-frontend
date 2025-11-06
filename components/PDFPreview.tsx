@@ -12,9 +12,10 @@ interface PDFPreviewProps {
   file: string | File;
   width?: number;
   height?: number;
+  pageNumber?: number; // Add page number support
 }
 
-export default function PDFPreview({ file, width = 180, height = 240 }: PDFPreviewProps) {
+export default function PDFPreview({ file, width = 180, height = 240, pageNumber = 1 }: PDFPreviewProps) {
   const [numPages, setNumPages] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -58,7 +59,7 @@ export default function PDFPreview({ file, width = 180, height = 240 }: PDFPrevi
         className="flex items-center justify-center"
       >
         <Page
-          pageNumber={1}
+          pageNumber={pageNumber}
           width={width}
           height={height}
           renderTextLayer={false}
@@ -67,7 +68,7 @@ export default function PDFPreview({ file, width = 180, height = 240 }: PDFPrevi
         />
       </Document>
 
-      {numPages > 1 && !loading && (
+      {numPages > 1 && !loading && pageNumber === 1 && (
         <div className="absolute bottom-2 right-2 bg-gray-900 bg-opacity-75 text-white text-xs px-2 py-1 rounded">
           {numPages} pages
         </div>
