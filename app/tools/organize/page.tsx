@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Upload, ArrowLeft, Download, RotateCcw, Plus, ArrowUpDown } from 'lucide-react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import {
   DndContext,
   closestCenter,
@@ -20,12 +21,16 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Document, Page, pdfjs } from 'react-pdf';
 
-// Set worker
-if (typeof window !== 'undefined') {
-  pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
-}
+// Dynamic import PDF preview
+const PDFPreview = dynamic(() => import('@/components/PDFPreview'), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full flex items-center justify-center bg-gray-100 rounded-lg">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+    </div>
+  ),
+});
 
 interface PageItem {
   id: string;
@@ -33,7 +38,7 @@ interface PageItem {
   originalPageNumber: number;
 }
 
-function SortablePageItem({ page, fileUrl }: { page: PageItem; fileUrl: string }) {
+function SortablePageItem({ page, file }: { page: PageItem; file: File }) {
   const {
     attributes,
     listeners,
@@ -61,14 +66,12 @@ function SortablePageItem({ page, fileUrl }: { page: PageItem; fileUrl: string }
     >
       {/* PDF Preview */}
       <div className="w-full aspect-[3/4] bg-gray-100 rounded-lg overflow-hidden mb-2">
-        <Document file={fileUrl} className="flex items-center justify-center">
-          <Page
-            pageNumber={page.originalPageNumber}
-            width={150}
-            renderTextLayer={false}
-            renderAnnotationLayer={false}
-          />
-        </Document>
+        <PDFPreview
+          file={file}
+          width={150}
+          height={200}
+          pageNumber={page.originalPageNumber}
+        />
       </div>
 
       {/* Page Number */}
@@ -81,7 +84,6 @@ function SortablePageItem({ page, fileUrl }: { page: PageItem; fileUrl: string }
 
 export default function OrganizePDFPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [fileUrl, setFileUrl] = useState<string>('');
   const [fileName, setFileName] = useState<string>('');
   const [documentId, setDocumentId] = useState<string>('');
   const [numPages, setNumPages] = useState<number>(0);
@@ -96,22 +98,10 @@ export default function OrganizePDFPage() {
     })
   );
 
-  // Clean up file URL on unmount
-  useEffect(() => {
-    return () => {
-      if (fileUrl) {
-        URL.revokeObjectURL(fileUrl);
-      }
-    };
-  }, [fileUrl]);
-
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
     if (!uploadedFile) return;
 
-    // Create stable file URL
-    const url = URL.createObjectURL(uploadedFile);
-    setFileUrl(url);
     setFile(uploadedFile);
     setFileName(uploadedFile.name);
     setLoading(true);
@@ -135,7 +125,10 @@ export default function OrganizePDFPage() {
       setDocumentId(data.id);
 
       // Get page count from PDF
-      const pdf = await pdfjs.getDocument(url).promise;
+      const pdfjs = await import('pdfjs-dist');
+      pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+      
+      const pdf = await pdfjs.getDocument(URL.createObjectURL(uploadedFile)).promise;
       const pageCount = pdf.numPages;
       
       setNumPages(pageCount);
@@ -233,11 +226,7 @@ export default function OrganizePDFPage() {
   };
 
   const handleResetAll = () => {
-    if (fileUrl) {
-      URL.revokeObjectURL(fileUrl);
-    }
     setFile(null);
-    setFileUrl('');
     setFileName('');
     setDocumentId('');
     setNumPages(0);
@@ -371,7 +360,7 @@ export default function OrganizePDFPage() {
                   >
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                       {pages.map((page) => (
-                        <SortablePageItem key={page.id} page={page} fileUrl={fileUrl} />
+                        <SortablePageItem key={page.id} page={page} file={file} />
                       ))}
                     </div>
                   </SortableContext>
@@ -399,6 +388,12 @@ export default function OrganizePDFPage() {
                   </svg>
                   <p className="text-sm text-gray-900 truncate flex-1">{fileName}</p>
                 </div>
+
+                {/* Add Files Button */}
+                <button className="w-full mt-4 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 text-gray-700">
+                  <Plus className="w-5 h-5" />
+                  <span className="text-sm font-medium">Add more files</span>
+                </button>
               </div>
 
               {/* Organize Button */}
