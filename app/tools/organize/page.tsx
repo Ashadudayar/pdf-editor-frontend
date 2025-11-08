@@ -239,71 +239,81 @@ export default function OrganizePDFPage() {
   };
 
   const handleOrganize = async () => {
-    if (files.length === 0) return;
+  if (files.length === 0) return;
 
-    setLoading(true);
+  setLoading(true);
 
-    try {
-      // If only one file, use organize endpoint
-      if (files.length === 1) {
-        const pageOrder = pages.map((page) => page.originalPageNumber);
+  try {
+    // If only one file, use organize endpoint
+    if (files.length === 1) {
+      const pageOrder = pages.map((page) => page.originalPageNumber);
 
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app/api'}/documents/${files[0].documentId}/organize/`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ page_order: pageOrder }),
-          }
-        );
-
-        if (!response.ok) throw new Error('Organize failed');
-
-        const data = await response.json();
-        
-        if (data.download_url) {
-          const baseUrl = 'https://positive-creativity-production.up.railway.app';
-          let cleanUrl = data.download_url;
-          if (cleanUrl.startsWith('/api/')) {
-            cleanUrl = cleanUrl.replace('/api/', '/');
-          }
-          const fullUrl = cleanUrl.startsWith('http') ? cleanUrl : `${baseUrl}/api${cleanUrl}`;
-          setResultUrl(fullUrl);
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app/api'}/documents/${files[0].documentId}/organize/`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ page_order: pageOrder }),
         }
-      } else {
-        // Multiple files - merge in the new order
-        const documentIds = pages.map(page => files[page.fileIndex].documentId);
+      );
 
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app/api'}/documents/merge/`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ document_ids: documentIds }),
-          }
-        );
+      if (!response.ok) throw new Error('Organize failed');
 
-        if (!response.ok) throw new Error('Merge failed');
+      const data = await response.json();
+      
+      if (data.download_url) {
+        const baseUrl = 'https://positive-creativity-production.up.railway.app';
+        let cleanUrl = data.download_url;
+        if (cleanUrl.startsWith('/api/')) {
+          cleanUrl = cleanUrl.replace('/api/', '/');
+        }
+        const fullUrl = cleanUrl.startsWith('http') ? cleanUrl : `${baseUrl}/api${cleanUrl}`;
+        setResultUrl(fullUrl);
+      }
+    } else {
+      // Multiple files - get unique document IDs in order
+      const seenFiles = new Set<number>();
+      const uniqueDocumentIds: string[] = [];
 
-        const data = await response.json();
-        
-        if (data.download_url) {
-          const baseUrl = 'https://positive-creativity-production.up.railway.app';
-          let cleanUrl = data.download_url;
-          if (cleanUrl.startsWith('/api/')) {
-            cleanUrl = cleanUrl.replace('/api/', '/');
-          }
-          const fullUrl = cleanUrl.startsWith('http') ? cleanUrl : `${baseUrl}/api${cleanUrl}`;
-          setResultUrl(fullUrl);
+      for (const page of pages) {
+        if (!seenFiles.has(page.fileIndex)) {
+          seenFiles.add(page.fileIndex);
+          uniqueDocumentIds.push(files[page.fileIndex].documentId);
         }
       }
-    } catch (error) {
-      console.error('Organize failed:', error);
-      alert('Failed to organize pages. Please try again.');
-    } finally {
-      setLoading(false);
+
+      console.log('Merging files:', uniqueDocumentIds.length, 'unique files');
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app/api'}/documents/merge/`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ document_ids: uniqueDocumentIds }),
+        }
+      );
+
+      if (!response.ok) throw new Error('Merge failed');
+
+      const data = await response.json();
+      
+      if (data.download_url) {
+        const baseUrl = 'https://positive-creativity-production.up.railway.app';
+        let cleanUrl = data.download_url;
+        if (cleanUrl.startsWith('/api/')) {
+          cleanUrl = cleanUrl.replace('/api/', '/');
+        }
+        const fullUrl = cleanUrl.startsWith('http') ? cleanUrl : `${baseUrl}/api${cleanUrl}`;
+        setResultUrl(fullUrl);
+      }
     }
-  };
+  } catch (error) {
+    console.error('Organize failed:', error);
+    alert('Failed to organize pages. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleResetAll = () => {
     setFiles([]);
