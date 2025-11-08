@@ -1,11 +1,9 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { Upload, ArrowLeft, Download, Pen, Hand, Type, Image as ImageIcon, Highlighter, Trash2 } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Upload, ArrowLeft, Download, Pen, Hand, Type, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { Document, Page, pdfjs } from 'react-pdf';
-import 'react-pdf/dist/Page/AnnotationLayer.css';
-import 'react-pdf/dist/Page/TextLayer.css';
 
 // Set worker
 if (typeof window !== 'undefined') {
@@ -24,17 +22,6 @@ interface TextItem {
   isNew: boolean;
 }
 
-interface EditOperation {
-  type: 'add_text' | 'delete_text' | 'modify_text';
-  page: number;
-  x?: number;
-  y?: number;
-  text?: string;
-  size?: number;
-  color?: [number, number, number];
-  area?: { x0: number; y0: number; x1: number; y1: number };
-}
-
 export default function EditPDFPage() {
   const [file, setFile] = useState<File | null>(null);
   const [fileUrl, setFileUrl] = useState<string>('');
@@ -50,8 +37,6 @@ export default function EditPDFPage() {
   const [selectedTool, setSelectedTool] = useState<'hand' | 'text'>('hand');
   const [textItems, setTextItems] = useState<TextItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
-  const [pageWidth, setPageWidth] = useState(0);
-  const [pageHeight, setPageHeight] = useState(0);
 
   const pageRef = useRef<HTMLDivElement>(null);
 
@@ -86,26 +71,8 @@ export default function EditPDFPage() {
       const pdf = await pdfjs.getDocument(url).promise;
       setNumPages(pdf.numPages);
 
-      // Extract text items from PDF
-      const page = await pdf.getPage(currentPage);
-      const viewport = page.getViewport({ scale: 1.5 });
-      setPageWidth(viewport.width);
-      setPageHeight(viewport.height);
-
-      const textContent = await page.getTextContent();
-      const extractedItems: TextItem[] = textContent.items.map((item: any, index: number) => ({
-        id: `text-${index}`,
-        text: item.str,
-        x: item.transform[4],
-        y: viewport.height - item.transform[5],
-        width: item.width,
-        height: item.height,
-        fontSize: item.height,
-        isEditing: false,
-        isNew: false,
-      }));
-
-      setTextItems(extractedItems);
+      // Load first page
+      await loadPageText(pdf, 1);
     } catch (error) {
       console.error('Upload failed:', error);
       alert('Failed to upload PDF. Please try again.');
@@ -114,16 +81,57 @@ export default function EditPDFPage() {
     }
   };
 
+  const loadPageText = async (pdf: any, pageNumber: number) => {
+    try {
+      const page = await pdf.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1.5 });
+      const textContent = await page.getTextContent();
+
+      const extractedItems: TextItem[] = [];
+
+      textContent.items.forEach((item: any, index: number) => {
+        if (item.str && item.str.trim()) {
+          const tx = item.transform;
+          
+          extractedItems.push({
+            id: `text-${pageNumber}-${index}`,
+            text: item.str,
+            x: tx[4],
+            y: viewport.height - tx[5] - item.height,
+            width: item.width,
+            height: item.height,
+            fontSize: item.height,
+            isEditing: false,
+            isNew: false,
+          });
+        }
+      });
+
+      setTextItems(extractedItems);
+    } catch (error) {
+      console.error('Error loading text:', error);
+    }
+  };
+
+  const handlePageChange = async (newPage: number) => {
+    setCurrentPage(newPage);
+    setSelectedItem(null);
+    
+    if (fileUrl) {
+      const pdf = await pdfjs.getDocument(fileUrl).promise;
+      await loadPageText(pdf, newPage);
+    }
+  };
+
   const handlePageClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (selectedTool === 'text' && mode === 'edit') {
       const rect = e.currentTarget.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / scale;
-      const y = (e.clientY - rect.top) / scale;
+      const x = (e.clientX - rect.left);
+      const y = (e.clientY - rect.top);
 
-      // Add new text item
       const newItem: TextItem = {
         id: `new-${Date.now()}`,
-        text: 'Click to edit',
+        text: 'New Text',
         x,
         y,
         width: 100,
@@ -175,16 +183,24 @@ export default function EditPDFPage() {
     setLoading(true);
 
     try {
-      const operations: EditOperation[] = [];
+      const operations: Array<{
+        type: string;
+        page: number;
+        x?: number;
+        y?: number;
+        text?: string;
+        size?: number;
+        color?: [number, number, number];
+      }> = [];
 
-      // Process text items
+      // Only save new text items
       textItems.forEach((item) => {
         if (item.isNew) {
           operations.push({
             type: 'add_text',
             page: currentPage,
             x: item.x,
-            y: pageHeight - item.y,
+            y: item.y,
             text: item.text,
             size: item.fontSize,
             color: [0, 0, 0],
@@ -257,9 +273,7 @@ export default function EditPDFPage() {
               </Link>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Edit PDF</h1>
-                <p className="text-sm text-gray-600">
-                  Add text, images, and annotations
-                </p>
+                <p className="text-sm text-gray-600">Add text, images, and annotations</p>
               </div>
             </div>
           </div>
@@ -273,13 +287,8 @@ export default function EditPDFPage() {
             <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
               <Download className="w-10 h-10 text-green-600" />
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              PDF Edited Successfully!
-            </h2>
-            <p className="text-gray-600 mb-8">
-              Your changes have been applied
-            </p>
-
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">PDF Edited Successfully!</h2>
+            <p className="text-gray-600 mb-8">Your changes have been applied</p>
             <div className="flex gap-4 justify-center">
               <button
                 onClick={handleDownload}
@@ -311,9 +320,7 @@ export default function EditPDFPage() {
               />
               <label htmlFor="file-upload" className="cursor-pointer">
                 <Upload className="w-16 h-16 text-blue-500 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                  Upload PDF File
-                </h3>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">Upload PDF File</h3>
                 <p className="text-gray-600 mb-1">Click to select or drag and drop</p>
                 <p className="text-sm text-gray-500">Upload a PDF to edit</p>
               </label>
@@ -323,25 +330,20 @@ export default function EditPDFPage() {
       ) : (
         // Editor State
         <div className="flex h-[calc(100vh-80px)]">
-          {/* Left Sidebar - Page Thumbnails */}
+          {/* Left Sidebar */}
           <div className="w-24 bg-white border-r border-gray-200 overflow-y-auto">
             <div className="p-2 space-y-2">
               {Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => (
                 <div
                   key={pageNum}
-                  onClick={() => setCurrentPage(pageNum)}
+                  onClick={() => handlePageChange(pageNum)}
                   className={`cursor-pointer border-2 rounded-lg overflow-hidden transition-all ${
                     currentPage === pageNum ? 'border-blue-500 shadow-lg' : 'border-gray-200 hover:border-blue-300'
                   }`}
                 >
                   <div className="bg-white p-1">
                     <Document file={fileUrl}>
-                      <Page
-                        pageNumber={pageNum}
-                        width={80}
-                        renderTextLayer={false}
-                        renderAnnotationLayer={false}
-                      />
+                      <Page pageNumber={pageNum} width={80} renderTextLayer={false} renderAnnotationLayer={false} />
                     </Document>
                   </div>
                   <div className={`text-center text-xs py-1 ${
@@ -354,15 +356,15 @@ export default function EditPDFPage() {
             </div>
           </div>
 
-          {/* Main Editor Area */}
+          {/* Main Editor */}
           <div className="flex-1 flex flex-col">
-            {/* Top Toolbar */}
+            {/* Toolbar */}
             <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setMode('annotate')}
-                  className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-                    mode === 'annotate' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
+                    mode === 'annotate' ? 'bg-gray-800 text-white' : 'bg-gray-100 hover:bg-gray-200'
                   }`}
                 >
                   <Pen className="w-4 h-4" />
@@ -370,45 +372,33 @@ export default function EditPDFPage() {
                 </button>
                 <button
                   onClick={() => setMode('edit')}
-                  className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-                    mode === 'edit' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
+                    mode === 'edit' ? 'bg-gray-800 text-white' : 'bg-gray-100 hover:bg-gray-200'
                   }`}
                 >
                   ✏️ Edit
                 </button>
-                <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm">☀️</span>
                 <button className="p-2 hover:bg-gray-100 rounded-lg">
                   <Hand className="w-5 h-5" />
                 </button>
               </div>
 
-              {/* Tools */}
               {mode === 'edit' && (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setSelectedTool('hand')}
-                    className={`p-2 rounded-lg transition-colors ${
-                      selectedTool === 'hand' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'
-                    }`}
-                    title="Hand"
+                    className={`p-2 rounded-lg ${selectedTool === 'hand' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'}`}
                   >
                     <Hand className="w-5 h-5" />
                   </button>
                   <button
                     onClick={() => setSelectedTool('text')}
-                    className={`p-2 rounded-lg transition-colors ${
-                      selectedTool === 'text' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'
-                    }`}
-                    title="Add Text"
+                    className={`p-2 rounded-lg ${selectedTool === 'text' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'}`}
                   >
                     <Type className="w-5 h-5" />
                   </button>
                   {selectedItem && (
-                    <button
-                      onClick={deleteSelectedItem}
-                      className="p-2 rounded-lg hover:bg-red-50 text-red-600"
-                      title="Delete"
-                    >
+                    <button onClick={deleteSelectedItem} className="p-2 rounded-lg hover:bg-red-50 text-red-600">
                       <Trash2 className="w-5 h-5" />
                     </button>
                   )}
@@ -417,38 +407,29 @@ export default function EditPDFPage() {
             </div>
 
             {/* PDF Viewer */}
-            <div className="flex-1 overflow-auto bg-gray-50 relative">
+            <div className="flex-1 overflow-auto bg-gray-50">
               <div className="flex items-start justify-center p-8">
-                <div
-                  ref={pageRef}
-                  className="bg-white shadow-2xl relative"
-                  onClick={handlePageClick}
-                  style={{ transform: `scale(${scale})`, transformOrigin: 'top center' }}
-                >
+                <div ref={pageRef} className="bg-white shadow-2xl relative" onClick={handlePageClick}>
                   <Document file={fileUrl}>
-                    <Page
-                      pageNumber={currentPage}
-                      scale={1.5}
-                      renderTextLayer={false}
-                      renderAnnotationLayer={false}
-                    />
+                    <Page pageNumber={currentPage} scale={1.5} renderTextLayer={false} renderAnnotationLayer={false} />
                   </Document>
 
-                  {/* Editable Text Overlays */}
+                  {/* Text Overlays */}
                   {textItems.map((item) => (
                     <div
                       key={item.id}
                       onClick={(e) => handleTextClick(e, item.id)}
-                      className={`absolute cursor-pointer transition-all ${
-                        selectedItem === item.id ? 'border-2 border-dashed border-blue-500 bg-blue-50 bg-opacity-20' : ''
-                      } ${item.isNew ? 'border-2 border-dashed border-green-500' : ''}`}
+                      className={`absolute cursor-pointer hover:bg-blue-50 hover:bg-opacity-20 ${
+                        selectedItem === item.id ? 'border-2 border-dashed border-blue-500 bg-blue-50 bg-opacity-30' : ''
+                      } ${item.isNew ? 'border-2 border-dashed border-green-500 bg-green-50 bg-opacity-30' : ''}`}
                       style={{
-                        left: item.x,
-                        top: item.y,
-                        minWidth: item.width,
-                        minHeight: item.height,
-                        fontSize: item.fontSize,
-                        padding: '2px 4px',
+                        left: `${item.x}px`,
+                        top: `${item.y}px`,
+                        minWidth: `${item.width}px`,
+                        minHeight: `${item.height}px`,
+                        fontSize: `${item.fontSize}px`,
+                        lineHeight: `${item.height}px`,
+                        padding: '1px 2px',
                       }}
                     >
                       {item.isEditing ? (
@@ -458,11 +439,11 @@ export default function EditPDFPage() {
                           onChange={(e) => handleTextChange(item.id, e.target.value)}
                           onBlur={() => handleTextBlur(item.id)}
                           autoFocus
-                          className="w-full bg-transparent outline-none border-none"
-                          style={{ fontSize: item.fontSize }}
+                          className="w-full bg-white bg-opacity-80 outline-none border-none"
+                          style={{ fontSize: `${item.fontSize}px` }}
                         />
                       ) : (
-                        <span>{item.text}</span>
+                        <span className="select-none">{item.text}</span>
                       )}
                     </div>
                   ))}
@@ -470,65 +451,46 @@ export default function EditPDFPage() {
               </div>
             </div>
 
-            {/* Bottom Toolbar */}
+            {/* Bottom Navigation */}
             <div className="bg-white border-t border-gray-200 p-4 flex items-center justify-center gap-4">
               <button
-                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
                 disabled={currentPage === 1}
                 className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-50"
               >
                 ←
               </button>
-              <span className="text-sm font-medium">
-                {currentPage} / {numPages}
-              </span>
+              <span className="text-sm font-medium">{currentPage} / {numPages}</span>
               <button
-                onClick={() => setCurrentPage(Math.min(numPages, currentPage + 1))}
+                onClick={() => handlePageChange(Math.min(numPages, currentPage + 1))}
                 disabled={currentPage === numPages}
                 className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-50"
               >
                 →
               </button>
-
               <div className="w-px h-6 bg-gray-300 mx-2" />
-
-              <button
-                onClick={() => setScale(Math.max(0.5, scale - 0.1))}
-                className="p-2 rounded-lg hover:bg-gray-100"
-              >
-                -
-              </button>
+              <button onClick={() => setScale(Math.max(0.5, scale - 0.1))} className="p-2 rounded-lg hover:bg-gray-100">-</button>
               <span className="text-sm w-12 text-center">{Math.round(scale * 100)}%</span>
-              <button
-                onClick={() => setScale(Math.min(2, scale + 0.1))}
-                className="p-2 rounded-lg hover:bg-gray-100"
-              >
-                +
-              </button>
+              <button onClick={() => setScale(Math.min(2, scale + 0.1))} className="p-2 rounded-lg hover:bg-gray-100">+</button>
             </div>
           </div>
 
           {/* Right Sidebar */}
           <div className="w-80 bg-white border-l border-gray-200 p-6 overflow-y-auto">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Edit PDF</h2>
-
             <p className="text-sm text-gray-600 mb-6">
               Select text to edit, move, or delete the existing content.
             </p>
 
-            {/* Color Picker */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Color
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Color</label>
               <div className="w-full h-12 bg-gradient-to-r from-blue-400 to-purple-400 rounded-lg"></div>
             </div>
 
-            {/* Save Button */}
             <button
               onClick={handleSave}
               disabled={loading || textItems.filter(i => i.isNew).length === 0}
-              className="w-full px-6 py-4 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors font-semibold text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg"
+              className="w-full px-6 py-4 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors font-semibold text-lg disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {loading ? (
                 <>
@@ -536,15 +498,13 @@ export default function EditPDFPage() {
                   Saving...
                 </>
               ) : (
-                <>
-                  Edit PDF →
-                </>
+                'Edit PDF →'
               )}
             </button>
 
             <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
               <p className="text-sm text-yellow-800">
-                ⚠️ The Content Editor does not currently support Right-to-Left (RTL) languages. If you uploaded a document in an RTL language, your changes may not be applied correctly.
+                ⚠️ The Content Editor does not currently support Right-to-Left (RTL) languages.
               </p>
             </div>
           </div>
