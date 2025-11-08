@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { Upload, ArrowLeft, Download, Pen, Hand, Type, Trash2, Save } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Upload, ArrowLeft, Download, Hand, Type, Trash2, Save } from 'lucide-react';
 import Link from 'next/link';
-import { Document, Page, pdfjs } from 'react-pdf';
+import { pdfjs } from 'react-pdf';
 
 if (typeof window !== 'undefined') {
   pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -16,11 +16,10 @@ interface TextItem {
   y: number;
   width: number;
   height: number;
-  fontName: string;
   fontSize: number;
   fontFamily: string;
   isEditing: boolean;
-  isModified: boolean;
+  isNew: boolean;
 }
 
 export default function EditPDFPage() {
@@ -32,13 +31,15 @@ export default function EditPDFPage() {
   const [loading, setLoading] = useState(false);
   const [resultUrl, setResultUrl] = useState<string>('');
   
-  const [mode, setMode] = useState<'annotate' | 'edit'>('edit');
   const [selectedTool, setSelectedTool] = useState<'hand' | 'text'>('hand');
   const [textItems, setTextItems] = useState<TextItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
-  const [pdfBackground, setPdfBackground] = useState<string>('');
-
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  
+  // Page rendering
+  const [pageImage, setPageImage] = useState<string>('');
+  const [pageWidth, setPageWidth] = useState<number>(0);
+  const [pageHeight, setPageHeight] = useState<number>(0);
+  const [pageThumbnails, setPageThumbnails] = useState<string[]>([]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
@@ -66,9 +67,19 @@ export default function EditPDFPage() {
       const data = await response.json();
       setDocumentId(data.id);
 
+      // Load PDF
       const pdf = await pdfjs.getDocument(url).promise;
       setNumPages(pdf.numPages);
 
+      // Generate thumbnails
+      const thumbs: string[] = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const thumb = await renderPageToImage(pdf, i, 0.2);
+        thumbs.push(thumb);
+      }
+      setPageThumbnails(thumbs);
+
+      // Load first page
       await loadPage(pdf, 1);
     } catch (error) {
       console.error('Upload failed:', error);
@@ -78,54 +89,65 @@ export default function EditPDFPage() {
     }
   };
 
-  const loadPage = async (pdf: any, pageNumber: number) => {
+  const renderPageToImage = async (pdf: any, pageNum: number, scale: number = 1.5): Promise<string> => {
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale });
+
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d')!;
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+
+    // Render ONLY the graphics layer (no text)
+    await page.render({
+      canvasContext: context,
+      viewport: viewport,
+      // This removes the text layer from rendering
+      renderTextLayer: false,
+    }).promise;
+
+    return canvas.toDataURL();
+  };
+
+  const loadPage = async (pdf: any, pageNum: number) => {
     try {
-      const page = await pdf.getPage(pageNumber);
+      // Render page to image (no text)
+      const image = await renderPageToImage(pdf, pageNum, 1.5);
+      setPageImage(image);
+
+      // Get page dimensions
+      const page = await pdf.getPage(pageNum);
       const viewport = page.getViewport({ scale: 1.5 });
+      setPageWidth(viewport.width);
+      setPageHeight(viewport.height);
 
-      // Render PDF to canvas (background only)
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d');
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
-
-      await page.render({
-        canvasContext: context,
-        viewport: viewport,
-      }).promise;
-
-      setPdfBackground(canvas.toDataURL());
-
-      // Extract text with positioning
+      // Extract text with positions
       const textContent = await page.getTextContent();
       const items: TextItem[] = [];
 
       textContent.items.forEach((item: any, index: number) => {
         if (item.str && item.str.trim()) {
-          const transform = item.transform;
-          const fontHeight = Math.sqrt(transform[2] * transform[2] + transform[3] * transform[3]);
+          const tx = item.transform;
+          const fontHeight = Math.sqrt(tx[2] * tx[2] + tx[3] * tx[3]);
           
-          // Map common PDF fonts to web-safe fonts
           let fontFamily = 'Arial, sans-serif';
           if (item.fontName) {
-            const fontLower = item.fontName.toLowerCase();
-            if (fontLower.includes('times')) fontFamily = 'Times New Roman, serif';
-            else if (fontLower.includes('courier')) fontFamily = 'Courier New, monospace';
-            else if (fontLower.includes('helvetica') || fontLower.includes('arial')) fontFamily = 'Arial, sans-serif';
+            const fn = item.fontName.toLowerCase();
+            if (fn.includes('times')) fontFamily = 'Times New Roman, serif';
+            else if (fn.includes('courier')) fontFamily = 'Courier New, monospace';
           }
 
           items.push({
-            id: `text-${pageNumber}-${index}`,
+            id: `text-${pageNum}-${index}`,
             text: item.str,
-            x: transform[4],
-            y: viewport.height - transform[5] - fontHeight,
+            x: tx[4],
+            y: viewport.height - tx[5] - fontHeight,
             width: item.width,
             height: fontHeight,
-            fontName: item.fontName || 'Arial',
             fontSize: fontHeight,
-            fontFamily: fontFamily,
+            fontFamily,
             isEditing: false,
-            isModified: false,
+            isNew: false,
           });
         }
       });
@@ -139,6 +161,7 @@ export default function EditPDFPage() {
   const handlePageChange = async (newPage: number) => {
     setCurrentPage(newPage);
     setSelectedItem(null);
+    setTextItems([]);
     
     if (fileUrl) {
       const pdf = await pdfjs.getDocument(fileUrl).promise;
@@ -147,7 +170,7 @@ export default function EditPDFPage() {
   };
 
   const handlePageClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (selectedTool === 'text' && mode === 'edit') {
+    if (selectedTool === 'text') {
       const rect = e.currentTarget.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -157,13 +180,12 @@ export default function EditPDFPage() {
         text: 'New Text',
         x,
         y,
-        width: 100,
+        width: 80,
         height: 16,
-        fontName: 'Arial',
         fontSize: 16,
         fontFamily: 'Arial, sans-serif',
         isEditing: true,
-        isModified: true,
+        isNew: true,
       };
 
       setTextItems([...textItems, newItem]);
@@ -176,24 +198,20 @@ export default function EditPDFPage() {
 
   const handleTextClick = (e: React.MouseEvent, itemId: string) => {
     e.stopPropagation();
-    if (mode === 'edit' && selectedTool === 'hand') {
-      setSelectedItem(itemId);
-    }
+    setSelectedItem(itemId);
   };
 
   const handleTextDoubleClick = (e: React.MouseEvent, itemId: string) => {
     e.stopPropagation();
-    if (mode === 'edit') {
-      setTextItems(textItems.map(item =>
-        item.id === itemId ? { ...item, isEditing: true } : { ...item, isEditing: false }
-      ));
-      setSelectedItem(itemId);
-    }
+    setTextItems(textItems.map(item =>
+      item.id === itemId ? { ...item, isEditing: true } : { ...item, isEditing: false }
+    ));
+    setSelectedItem(itemId);
   };
 
   const handleTextChange = (itemId: string, newText: string) => {
     setTextItems(textItems.map(item =>
-      item.id === itemId ? { ...item, text: newText, isModified: true } : item
+      item.id === itemId ? { ...item, text: newText } : item
     ));
   };
 
@@ -227,7 +245,7 @@ export default function EditPDFPage() {
       }> = [];
 
       textItems.forEach((item) => {
-        if (item.isModified) {
+        if (item.isNew) {
           operations.push({
             type: 'add_text',
             page: currentPage,
@@ -280,7 +298,8 @@ export default function EditPDFPage() {
     setResultUrl('');
     setTextItems([]);
     setSelectedItem(null);
-    setPdfBackground('');
+    setPageImage('');
+    setPageThumbnails([]);
   };
 
   const handleDownload = () => {
@@ -306,7 +325,7 @@ export default function EditPDFPage() {
               </Link>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Edit PDF</h1>
-                <p className="text-sm text-gray-600">Add text, images, and annotations</p>
+                <p className="text-sm text-gray-600">Click text to select, double-click to edit</p>
               </div>
             </div>
           </div>
@@ -360,29 +379,28 @@ export default function EditPDFPage() {
         </div>
       ) : (
         <div className="flex h-[calc(100vh-80px)]">
-          {/* Left Sidebar */}
+          {/* Left Sidebar - Thumbnails */}
           <div className="w-24 bg-white border-r border-gray-200 overflow-y-auto">
             <div className="p-2 space-y-2">
-              {Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => (
-                <div
-                  key={pageNum}
-                  onClick={() => handlePageChange(pageNum)}
-                  className={`cursor-pointer border-2 rounded-lg overflow-hidden transition-all ${
-                    currentPage === pageNum ? 'border-blue-500 shadow-lg' : 'border-gray-200 hover:border-blue-300'
-                  }`}
-                >
-                  <div className="bg-white p-1">
-                    <Document file={fileUrl}>
-                      <Page pageNumber={pageNum} width={80} renderTextLayer={false} renderAnnotationLayer={false} />
-                    </Document>
+              {pageThumbnails.map((thumb, index) => {
+                const pageNum = index + 1;
+                return (
+                  <div
+                    key={pageNum}
+                    onClick={() => handlePageChange(pageNum)}
+                    className={`cursor-pointer border-2 rounded-lg overflow-hidden transition-all ${
+                      currentPage === pageNum ? 'border-blue-500 shadow-lg' : 'border-gray-200 hover:border-blue-300'
+                    }`}
+                  >
+                    <img src={thumb} alt={`Page ${pageNum}`} className="w-full" />
+                    <div className={`text-center text-xs py-1 ${
+                      currentPage === pageNum ? 'bg-blue-500 text-white' : 'bg-gray-50 text-gray-600'
+                    }`}>
+                      {pageNum}
+                    </div>
                   </div>
-                  <div className={`text-center text-xs py-1 ${
-                    currentPage === pageNum ? 'bg-blue-500 text-white' : 'bg-gray-50 text-gray-600'
-                  }`}>
-                    {pageNum}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -392,66 +410,46 @@ export default function EditPDFPage() {
             <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setMode('annotate')}
-                  className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
-                    mode === 'annotate' ? 'bg-gray-800 text-white' : 'bg-gray-100 hover:bg-gray-200'
-                  }`}
+                  onClick={() => setSelectedTool('hand')}
+                  className={`p-2 rounded-lg ${selectedTool === 'hand' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'}`}
+                  title="Select Tool"
                 >
-                  <Pen className="w-4 h-4" />
-                  Annotate
+                  <Hand className="w-5 h-5" />
                 </button>
                 <button
-                  onClick={() => setMode('edit')}
-                  className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
-                    mode === 'edit' ? 'bg-gray-800 text-white' : 'bg-gray-100 hover:bg-gray-200'
-                  }`}
+                  onClick={() => setSelectedTool('text')}
+                  className={`p-2 rounded-lg ${selectedTool === 'text' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'}`}
+                  title="Add Text"
                 >
-                  ✏️ Edit
+                  <Type className="w-5 h-5" />
                 </button>
+                {selectedItem && (
+                  <button onClick={deleteSelectedItem} className="p-2 rounded-lg hover:bg-red-50 text-red-600" title="Delete">
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                )}
               </div>
-
-              {mode === 'edit' && (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setSelectedTool('hand')}
-                    className={`p-2 rounded-lg ${selectedTool === 'hand' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'}`}
-                    title="Select Tool"
-                  >
-                    <Hand className="w-5 h-5" />
-                  </button>
-                  <button
-                    onClick={() => setSelectedTool('text')}
-                    className={`p-2 rounded-lg ${selectedTool === 'text' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'}`}
-                    title="Add Text"
-                  >
-                    <Type className="w-5 h-5" />
-                  </button>
-                  {selectedItem && (
-                    <button onClick={deleteSelectedItem} className="p-2 rounded-lg hover:bg-red-50 text-red-600" title="Delete">
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
 
-            {/* PDF Viewer */}
-            <div className="flex-1 overflow-auto bg-gray-50">
-              <div className="flex items-start justify-center p-8">
+            {/* PDF Canvas */}
+            <div className="flex-1 overflow-auto bg-gray-50 p-8">
+              <div className="flex justify-center">
                 <div
                   className="relative bg-white shadow-2xl"
                   onClick={handlePageClick}
                   style={{
+                    width: pageWidth,
+                    height: pageHeight,
                     cursor: selectedTool === 'text' ? 'crosshair' : 'default',
                   }}
                 >
-                  {/* PDF Background (No Text) */}
-                  {pdfBackground && (
+                  {/* PDF Background Image (NO TEXT) */}
+                  {pageImage && (
                     <img
-                      src={pdfBackground}
+                      src={pageImage}
                       alt="PDF Page"
-                      className="block"
-                      style={{ userSelect: 'none', pointerEvents: 'none' }}
+                      className="absolute top-0 left-0 w-full h-full pointer-events-none select-none"
+                      draggable={false}
                     />
                   )}
 
@@ -461,11 +459,11 @@ export default function EditPDFPage() {
                       key={item.id}
                       onClick={(e) => handleTextClick(e, item.id)}
                       onDoubleClick={(e) => handleTextDoubleClick(e, item.id)}
-                      className={`absolute transition-all ${
+                      className={`absolute cursor-pointer transition-all ${
                         selectedItem === item.id
                           ? 'border-2 border-dashed border-blue-500 bg-blue-50 bg-opacity-20'
-                          : 'border-2 border-dashed border-transparent hover:border-blue-300 hover:bg-blue-50 hover:bg-opacity-10'
-                      } ${item.isModified ? 'bg-yellow-50 bg-opacity-30' : ''}`}
+                          : 'hover:border-2 hover:border-dashed hover:border-blue-300 hover:bg-blue-50 hover:bg-opacity-10'
+                      } ${item.isNew ? 'bg-green-50 bg-opacity-30 border-2 border-dashed border-green-500' : ''}`}
                       style={{
                         left: `${item.x}px`,
                         top: `${item.y}px`,
@@ -474,10 +472,9 @@ export default function EditPDFPage() {
                         fontSize: `${item.fontSize}px`,
                         fontFamily: item.fontFamily,
                         lineHeight: `${item.height}px`,
-                        cursor: item.isEditing ? 'text' : 'pointer',
                         padding: '0 2px',
+                        whiteSpace: 'nowrap',
                       }}
-                      title={item.isEditing ? 'Editing' : 'Click to select, double-click to edit'}
                     >
                       {item.isEditing ? (
                         <input
@@ -486,7 +483,7 @@ export default function EditPDFPage() {
                           onChange={(e) => handleTextChange(item.id, e.target.value)}
                           onBlur={() => handleTextBlur(item.id)}
                           autoFocus
-                          className="w-full bg-white bg-opacity-80 outline-none border-none"
+                          className="w-full bg-white bg-opacity-90 outline-none border-none"
                           style={{
                             fontSize: `${item.fontSize}px`,
                             fontFamily: item.fontFamily,
@@ -494,7 +491,7 @@ export default function EditPDFPage() {
                           }}
                         />
                       ) : (
-                        <span className="select-none whitespace-nowrap">{item.text}</span>
+                        <span className="select-none">{item.text}</span>
                       )}
                     </div>
                   ))}
@@ -502,7 +499,7 @@ export default function EditPDFPage() {
               </div>
             </div>
 
-            {/* Bottom Navigation */}
+            {/* Bottom Nav */}
             <div className="bg-white border-t border-gray-200 p-4 flex items-center justify-center gap-4">
               <button
                 onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
@@ -523,24 +520,24 @@ export default function EditPDFPage() {
           </div>
 
           {/* Right Sidebar */}
-          <div className="w-80 bg-white border-l border-gray-200 p-6 overflow-y-auto">
+          <div className="w-80 bg-white border-l border-gray-200 p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Edit PDF</h2>
             <p className="text-sm text-gray-600 mb-6">
-              Select text to edit, move, or delete the existing content.
+              Click to select, double-click to edit text.
             </p>
 
             <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-sm text-blue-800">
-                💡 <strong>Tip:</strong><br/>
-                • Click to select text<br/>
-                • Double-click to edit<br/>
-                • Use Text tool to add new text
+                💡 <strong>How to edit:</strong><br/>
+                • Click = Select<br/>
+                • Double-click = Edit<br/>
+                • Text tool = Add new
               </p>
             </div>
 
             <button
               onClick={handleSave}
-              disabled={loading || !textItems.some(i => i.isModified)}
+              disabled={loading || !textItems.some(i => i.isNew)}
               className="w-full px-6 py-4 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors font-semibold text-lg disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {loading ? (
@@ -555,12 +552,6 @@ export default function EditPDFPage() {
                 </>
               )}
             </button>
-
-            <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <p className="text-sm text-yellow-800">
-                ⚠️ Modified text appears with yellow background. Font families are preserved from the original PDF.
-              </p>
-            </div>
           </div>
         </div>
       )}
