@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { Upload, ArrowLeft, Download, Pen, Hand, Type, Trash2 } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Upload, ArrowLeft, Download, Pen, Hand, Type, Trash2, Save } from 'lucide-react';
 import Link from 'next/link';
 import { Document, Page, pdfjs } from 'react-pdf';
 
@@ -9,16 +9,18 @@ if (typeof window !== 'undefined') {
   pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 }
 
-interface TextBlock {
+interface TextItem {
   id: string;
   text: string;
   x: number;
   y: number;
   width: number;
   height: number;
+  fontName: string;
   fontSize: number;
+  fontFamily: string;
   isEditing: boolean;
-  isNew: boolean;
+  isModified: boolean;
 }
 
 export default function EditPDFPage() {
@@ -29,107 +31,14 @@ export default function EditPDFPage() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [loading, setLoading] = useState(false);
   const [resultUrl, setResultUrl] = useState<string>('');
-  const [scale, setScale] = useState(1.0);
   
   const [mode, setMode] = useState<'annotate' | 'edit'>('edit');
   const [selectedTool, setSelectedTool] = useState<'hand' | 'text'>('hand');
-  const [textBlocks, setTextBlocks] = useState<TextBlock[]>([]);
-  const [selectedBlock, setSelectedBlock] = useState<string | null>(null);
+  const [textItems, setTextItems] = useState<TextItem[]>([]);
+  const [selectedItem, setSelectedItem] = useState<string | null>(null);
+  const [pdfBackground, setPdfBackground] = useState<string>('');
 
-  const pageRef = useRef<HTMLDivElement>(null);
-
-  const groupTextIntoBlocks = (items: any[], viewportHeight: number): TextBlock[] => {
-    if (items.length === 0) return [];
-
-    const VERTICAL_THRESHOLD = 3;
-    const HORIZONTAL_THRESHOLD = 15;
-
-    // Sort by vertical position first, then horizontal
-    const sortedItems = [...items].sort((a, b) => {
-      const yDiff = Math.abs(a.transform[5] - b.transform[5]);
-      if (yDiff < VERTICAL_THRESHOLD) {
-        return a.transform[4] - b.transform[4];
-      }
-      return b.transform[5] - a.transform[5];
-    });
-
-    const lines: any[][] = [];
-    let currentLine: any[] = [];
-
-    sortedItems.forEach((item, index) => {
-      if (item.str.trim()) {
-        if (currentLine.length === 0) {
-          currentLine.push(item);
-        } else {
-          const lastItem = currentLine[currentLine.length - 1];
-          const yDiff = Math.abs(item.transform[5] - lastItem.transform[5]);
-
-          if (yDiff < VERTICAL_THRESHOLD) {
-            currentLine.push(item);
-          } else {
-            lines.push(currentLine);
-            currentLine = [item];
-          }
-        }
-      }
-    });
-
-    if (currentLine.length > 0) {
-      lines.push(currentLine);
-    }
-
-    // Group lines into blocks based on proximity
-    const blocks: TextBlock[] = [];
-    let blockId = 0;
-
-    lines.forEach((line, lineIndex) => {
-      let currentBlock: any[] = [];
-
-      line.forEach((item, itemIndex) => {
-        if (currentBlock.length === 0) {
-          currentBlock.push(item);
-        } else {
-          const lastItem = currentBlock[currentBlock.length - 1];
-          const horizontalGap = item.transform[4] - (lastItem.transform[4] + lastItem.width);
-
-          if (horizontalGap < HORIZONTAL_THRESHOLD) {
-            currentBlock.push(item);
-          } else {
-            // Save current block
-            blocks.push(createBlockFromItems(currentBlock, viewportHeight, `block-${blockId++}`));
-            currentBlock = [item];
-          }
-        }
-      });
-
-      if (currentBlock.length > 0) {
-        blocks.push(createBlockFromItems(currentBlock, viewportHeight, `block-${blockId++}`));
-      }
-    });
-
-    return blocks;
-  };
-
-  const createBlockFromItems = (items: any[], viewportHeight: number, id: string): TextBlock => {
-    const texts = items.map(item => item.str).join(' ');
-    const minX = Math.min(...items.map(item => item.transform[4]));
-    const maxX = Math.max(...items.map(item => item.transform[4] + item.width));
-    const minY = Math.min(...items.map(item => item.transform[5]));
-    const maxY = Math.max(...items.map(item => item.transform[5] + item.height));
-    const avgFontSize = items.reduce((sum, item) => sum + item.height, 0) / items.length;
-
-    return {
-      id,
-      text: texts,
-      x: minX,
-      y: viewportHeight - maxY,
-      width: maxX - minX,
-      height: maxY - minY,
-      fontSize: avgFontSize,
-      isEditing: false,
-      isNew: false,
-    };
-  };
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
@@ -160,7 +69,7 @@ export default function EditPDFPage() {
       const pdf = await pdfjs.getDocument(url).promise;
       setNumPages(pdf.numPages);
 
-      await loadPageText(pdf, 1);
+      await loadPage(pdf, 1);
     } catch (error) {
       console.error('Upload failed:', error);
       alert('Failed to upload PDF. Please try again.');
@@ -169,26 +78,71 @@ export default function EditPDFPage() {
     }
   };
 
-  const loadPageText = async (pdf: any, pageNumber: number) => {
+  const loadPage = async (pdf: any, pageNumber: number) => {
     try {
       const page = await pdf.getPage(pageNumber);
       const viewport = page.getViewport({ scale: 1.5 });
-      const textContent = await page.getTextContent();
 
-      const blocks = groupTextIntoBlocks(textContent.items, viewport.height);
-      setTextBlocks(blocks);
+      // Render PDF to canvas (background only)
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      await page.render({
+        canvasContext: context,
+        viewport: viewport,
+      }).promise;
+
+      setPdfBackground(canvas.toDataURL());
+
+      // Extract text with positioning
+      const textContent = await page.getTextContent();
+      const items: TextItem[] = [];
+
+      textContent.items.forEach((item: any, index: number) => {
+        if (item.str && item.str.trim()) {
+          const transform = item.transform;
+          const fontHeight = Math.sqrt(transform[2] * transform[2] + transform[3] * transform[3]);
+          
+          // Map common PDF fonts to web-safe fonts
+          let fontFamily = 'Arial, sans-serif';
+          if (item.fontName) {
+            const fontLower = item.fontName.toLowerCase();
+            if (fontLower.includes('times')) fontFamily = 'Times New Roman, serif';
+            else if (fontLower.includes('courier')) fontFamily = 'Courier New, monospace';
+            else if (fontLower.includes('helvetica') || fontLower.includes('arial')) fontFamily = 'Arial, sans-serif';
+          }
+
+          items.push({
+            id: `text-${pageNumber}-${index}`,
+            text: item.str,
+            x: transform[4],
+            y: viewport.height - transform[5] - fontHeight,
+            width: item.width,
+            height: fontHeight,
+            fontName: item.fontName || 'Arial',
+            fontSize: fontHeight,
+            fontFamily: fontFamily,
+            isEditing: false,
+            isModified: false,
+          });
+        }
+      });
+
+      setTextItems(items);
     } catch (error) {
-      console.error('Error loading text:', error);
+      console.error('Error loading page:', error);
     }
   };
 
   const handlePageChange = async (newPage: number) => {
     setCurrentPage(newPage);
-    setSelectedBlock(null);
+    setSelectedItem(null);
     
     if (fileUrl) {
       const pdf = await pdfjs.getDocument(fileUrl).promise;
-      await loadPageText(pdf, newPage);
+      await loadPage(pdf, newPage);
     }
   };
 
@@ -198,56 +152,61 @@ export default function EditPDFPage() {
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
 
-      const newBlock: TextBlock = {
+      const newItem: TextItem = {
         id: `new-${Date.now()}`,
-        text: 'Double-click to edit',
+        text: 'New Text',
         x,
         y,
-        width: 150,
-        height: 30,
-        fontSize: 14,
-        isEditing: false,
-        isNew: true,
+        width: 100,
+        height: 16,
+        fontName: 'Arial',
+        fontSize: 16,
+        fontFamily: 'Arial, sans-serif',
+        isEditing: true,
+        isModified: true,
       };
 
-      setTextBlocks([...textBlocks, newBlock]);
-      setSelectedBlock(newBlock.id);
+      setTextItems([...textItems, newItem]);
+      setSelectedItem(newItem.id);
+    } else {
+      setSelectedItem(null);
+      setTextItems(textItems.map(item => ({ ...item, isEditing: false })));
     }
   };
 
-  const handleBlockClick = (e: React.MouseEvent, blockId: string) => {
+  const handleTextClick = (e: React.MouseEvent, itemId: string) => {
     e.stopPropagation();
-    if (mode === 'edit') {
-      setSelectedBlock(blockId);
+    if (mode === 'edit' && selectedTool === 'hand') {
+      setSelectedItem(itemId);
     }
   };
 
-  const handleBlockDoubleClick = (e: React.MouseEvent, blockId: string) => {
+  const handleTextDoubleClick = (e: React.MouseEvent, itemId: string) => {
     e.stopPropagation();
     if (mode === 'edit') {
-      setTextBlocks(textBlocks.map(block =>
-        block.id === blockId ? { ...block, isEditing: true } : { ...block, isEditing: false }
+      setTextItems(textItems.map(item =>
+        item.id === itemId ? { ...item, isEditing: true } : { ...item, isEditing: false }
       ));
-      setSelectedBlock(blockId);
+      setSelectedItem(itemId);
     }
   };
 
-  const handleTextChange = (blockId: string, newText: string) => {
-    setTextBlocks(textBlocks.map(block =>
-      block.id === blockId ? { ...block, text: newText } : block
+  const handleTextChange = (itemId: string, newText: string) => {
+    setTextItems(textItems.map(item =>
+      item.id === itemId ? { ...item, text: newText, isModified: true } : item
     ));
   };
 
-  const handleTextBlur = (blockId: string) => {
-    setTextBlocks(textBlocks.map(block =>
-      block.id === blockId ? { ...block, isEditing: false } : block
+  const handleTextBlur = (itemId: string) => {
+    setTextItems(textItems.map(item =>
+      item.id === itemId ? { ...item, isEditing: false } : item
     ));
   };
 
-  const deleteSelectedBlock = () => {
-    if (selectedBlock) {
-      setTextBlocks(textBlocks.filter(block => block.id !== selectedBlock));
-      setSelectedBlock(null);
+  const deleteSelectedItem = () => {
+    if (selectedItem) {
+      setTextItems(textItems.filter(item => item.id !== selectedItem));
+      setSelectedItem(null);
     }
   };
 
@@ -267,15 +226,15 @@ export default function EditPDFPage() {
         color?: [number, number, number];
       }> = [];
 
-      textBlocks.forEach((block) => {
-        if (block.isNew) {
+      textItems.forEach((item) => {
+        if (item.isModified) {
           operations.push({
             type: 'add_text',
             page: currentPage,
-            x: block.x,
-            y: block.y,
-            text: block.text,
-            size: block.fontSize,
+            x: item.x,
+            y: item.y,
+            text: item.text,
+            size: item.fontSize,
             color: [0, 0, 0],
           });
         }
@@ -319,8 +278,9 @@ export default function EditPDFPage() {
     setNumPages(0);
     setCurrentPage(1);
     setResultUrl('');
-    setTextBlocks([]);
-    setSelectedBlock(null);
+    setTextItems([]);
+    setSelectedItem(null);
+    setPdfBackground('');
   };
 
   const handleDownload = () => {
@@ -448,9 +408,6 @@ export default function EditPDFPage() {
                 >
                   ✏️ Edit
                 </button>
-                <button className="p-2 hover:bg-gray-100 rounded-lg">
-                  <Hand className="w-5 h-5" />
-                </button>
               </div>
 
               {mode === 'edit' && (
@@ -458,17 +415,19 @@ export default function EditPDFPage() {
                   <button
                     onClick={() => setSelectedTool('hand')}
                     className={`p-2 rounded-lg ${selectedTool === 'hand' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'}`}
+                    title="Select Tool"
                   >
                     <Hand className="w-5 h-5" />
                   </button>
                   <button
                     onClick={() => setSelectedTool('text')}
                     className={`p-2 rounded-lg ${selectedTool === 'text' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'}`}
+                    title="Add Text"
                   >
                     <Type className="w-5 h-5" />
                   </button>
-                  {selectedBlock && (
-                    <button onClick={deleteSelectedBlock} className="p-2 rounded-lg hover:bg-red-50 text-red-600">
+                  {selectedItem && (
+                    <button onClick={deleteSelectedItem} className="p-2 rounded-lg hover:bg-red-50 text-red-600" title="Delete">
                       <Trash2 className="w-5 h-5" />
                     </button>
                   )}
@@ -479,47 +438,63 @@ export default function EditPDFPage() {
             {/* PDF Viewer */}
             <div className="flex-1 overflow-auto bg-gray-50">
               <div className="flex items-start justify-center p-8">
-                <div ref={pageRef} className="bg-white shadow-2xl relative" onClick={handlePageClick}>
-                  <Document file={fileUrl}>
-                    <Page pageNumber={currentPage} scale={1.5} renderTextLayer={false} renderAnnotationLayer={false} />
-                  </Document>
+                <div
+                  className="relative bg-white shadow-2xl"
+                  onClick={handlePageClick}
+                  style={{
+                    cursor: selectedTool === 'text' ? 'crosshair' : 'default',
+                  }}
+                >
+                  {/* PDF Background (No Text) */}
+                  {pdfBackground && (
+                    <img
+                      src={pdfBackground}
+                      alt="PDF Page"
+                      className="block"
+                      style={{ userSelect: 'none', pointerEvents: 'none' }}
+                    />
+                  )}
 
-                  {/* Text Block Overlays */}
-                  {textBlocks.map((block) => (
+                  {/* Editable Text Overlays */}
+                  {textItems.map((item) => (
                     <div
-                      key={block.id}
-                      onClick={(e) => handleBlockClick(e, block.id)}
-                      onDoubleClick={(e) => handleBlockDoubleClick(e, block.id)}
-                      className={`absolute cursor-pointer transition-all ${
-                        selectedBlock === block.id 
-                          ? 'border-2 border-dashed border-blue-500 bg-blue-50 bg-opacity-30' 
-                          : 'border-2 border-dashed border-transparent hover:border-blue-300 hover:bg-blue-50 hover:bg-opacity-20'
-                      } ${block.isNew ? 'border-green-500 bg-green-50 bg-opacity-30' : ''}`}
+                      key={item.id}
+                      onClick={(e) => handleTextClick(e, item.id)}
+                      onDoubleClick={(e) => handleTextDoubleClick(e, item.id)}
+                      className={`absolute transition-all ${
+                        selectedItem === item.id
+                          ? 'border-2 border-dashed border-blue-500 bg-blue-50 bg-opacity-20'
+                          : 'border-2 border-dashed border-transparent hover:border-blue-300 hover:bg-blue-50 hover:bg-opacity-10'
+                      } ${item.isModified ? 'bg-yellow-50 bg-opacity-30' : ''}`}
                       style={{
-                        left: `${block.x}px`,
-                        top: `${block.y}px`,
-                        minWidth: `${block.width}px`,
-                        minHeight: `${block.height}px`,
-                        padding: '4px',
+                        left: `${item.x}px`,
+                        top: `${item.y}px`,
+                        minWidth: `${item.width}px`,
+                        minHeight: `${item.height}px`,
+                        fontSize: `${item.fontSize}px`,
+                        fontFamily: item.fontFamily,
+                        lineHeight: `${item.height}px`,
+                        cursor: item.isEditing ? 'text' : 'pointer',
+                        padding: '0 2px',
                       }}
-                      title="Click to select, double-click to edit"
+                      title={item.isEditing ? 'Editing' : 'Click to select, double-click to edit'}
                     >
-                      {block.isEditing ? (
-                        <textarea
-                          value={block.text}
-                          onChange={(e) => handleTextChange(block.id, e.target.value)}
-                          onBlur={() => handleTextBlur(block.id)}
+                      {item.isEditing ? (
+                        <input
+                          type="text"
+                          value={item.text}
+                          onChange={(e) => handleTextChange(item.id, e.target.value)}
+                          onBlur={() => handleTextBlur(item.id)}
                           autoFocus
-                          className="w-full h-full bg-white bg-opacity-90 outline-none border-none resize-none"
-                          style={{ fontSize: `${block.fontSize}px`, lineHeight: '1.2' }}
+                          className="w-full bg-white bg-opacity-80 outline-none border-none"
+                          style={{
+                            fontSize: `${item.fontSize}px`,
+                            fontFamily: item.fontFamily,
+                            lineHeight: `${item.height}px`,
+                          }}
                         />
                       ) : (
-                        <div
-                          className="select-none whitespace-pre-wrap"
-                          style={{ fontSize: `${block.fontSize}px`, lineHeight: '1.2' }}
-                        >
-                          {block.text}
-                        </div>
+                        <span className="select-none whitespace-nowrap">{item.text}</span>
                       )}
                     </div>
                   ))}
@@ -544,10 +519,6 @@ export default function EditPDFPage() {
               >
                 →
               </button>
-              <div className="w-px h-6 bg-gray-300 mx-2" />
-              <button onClick={() => setScale(Math.max(0.5, scale - 0.1))} className="p-2 rounded-lg hover:bg-gray-100">-</button>
-              <span className="text-sm w-12 text-center">{Math.round(scale * 100)}%</span>
-              <button onClick={() => setScale(Math.min(2, scale + 0.1))} className="p-2 rounded-lg hover:bg-gray-100">+</button>
             </div>
           </div>
 
@@ -560,18 +531,16 @@ export default function EditPDFPage() {
 
             <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-sm text-blue-800">
-                💡 <strong>Tip:</strong> Click to select a text block, double-click to edit it.
+                💡 <strong>Tip:</strong><br/>
+                • Click to select text<br/>
+                • Double-click to edit<br/>
+                • Use Text tool to add new text
               </p>
-            </div>
-
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Color</label>
-              <div className="w-full h-12 bg-gradient-to-r from-blue-400 to-purple-400 rounded-lg"></div>
             </div>
 
             <button
               onClick={handleSave}
-              disabled={loading || textBlocks.filter(i => i.isNew).length === 0}
+              disabled={loading || !textItems.some(i => i.isModified)}
               className="w-full px-6 py-4 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors font-semibold text-lg disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {loading ? (
@@ -580,13 +549,16 @@ export default function EditPDFPage() {
                   Saving...
                 </>
               ) : (
-                'Edit PDF →'
+                <>
+                  <Save className="w-5 h-5" />
+                  Save Changes
+                </>
               )}
             </button>
 
             <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
               <p className="text-sm text-yellow-800">
-                ⚠️ The Content Editor does not currently support Right-to-Left (RTL) languages.
+                ⚠️ Modified text appears with yellow background. Font families are preserved from the original PDF.
               </p>
             </div>
           </div>
