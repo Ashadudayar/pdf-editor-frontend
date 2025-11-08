@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { Upload, ArrowLeft, Download, Type, Image as ImageIcon, Pen, Square, Circle, Highlighter, Eraser, Trash2, MousePointer } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Upload, ArrowLeft, Download, Pen, Hand, Type, Image as ImageIcon, Highlighter, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
@@ -12,25 +12,27 @@ if (typeof window !== 'undefined') {
   pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 }
 
-interface TextElement {
+interface TextItem {
   id: string;
+  text: string;
   x: number;
   y: number;
-  text: string;
-  size: number;
-  color: string;
+  width: number;
+  height: number;
+  fontSize: number;
+  isEditing: boolean;
+  isNew: boolean;
 }
 
-interface DrawingElement {
-  id: string;
-  type: 'line' | 'rectangle' | 'circle' | 'highlight';
-  x: number;
-  y: number;
-  width?: number;
-  height?: number;
-  points?: { x: number; y: number }[];
-  color: string;
-  strokeWidth?: number;
+interface EditOperation {
+  type: 'add_text' | 'delete_text' | 'modify_text';
+  page: number;
+  x?: number;
+  y?: number;
+  text?: string;
+  size?: number;
+  color?: [number, number, number];
+  area?: { x0: number; y0: number; x1: number; y1: number };
 }
 
 export default function EditPDFPage() {
@@ -41,19 +43,17 @@ export default function EditPDFPage() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [loading, setLoading] = useState(false);
   const [resultUrl, setResultUrl] = useState<string>('');
-  
-  // Editing state
-  const [selectedTool, setSelectedTool] = useState<'select' | 'text' | 'draw' | 'rectangle' | 'circle' | 'highlight' | 'eraser'>('select');
-  const [textElements, setTextElements] = useState<TextElement[]>([]);
-  const [drawingElements, setDrawingElements] = useState<DrawingElement[]>([]);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [currentDrawing, setCurrentDrawing] = useState<{ x: number; y: number }[]>([]);
-  const [selectedColor, setSelectedColor] = useState('#000000');
-  const [fontSize, setFontSize] = useState(16);
   const [scale, setScale] = useState(1.0);
   
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const pageContainerRef = useRef<HTMLDivElement>(null);
+  // Editing state
+  const [mode, setMode] = useState<'annotate' | 'edit'>('edit');
+  const [selectedTool, setSelectedTool] = useState<'hand' | 'text'>('hand');
+  const [textItems, setTextItems] = useState<TextItem[]>([]);
+  const [selectedItem, setSelectedItem] = useState<string | null>(null);
+  const [pageWidth, setPageWidth] = useState(0);
+  const [pageHeight, setPageHeight] = useState(0);
+
+  const pageRef = useRef<HTMLDivElement>(null);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
@@ -85,6 +85,27 @@ export default function EditPDFPage() {
       // Get page count
       const pdf = await pdfjs.getDocument(url).promise;
       setNumPages(pdf.numPages);
+
+      // Extract text items from PDF
+      const page = await pdf.getPage(currentPage);
+      const viewport = page.getViewport({ scale: 1.5 });
+      setPageWidth(viewport.width);
+      setPageHeight(viewport.height);
+
+      const textContent = await page.getTextContent();
+      const extractedItems: TextItem[] = textContent.items.map((item: any, index: number) => ({
+        id: `text-${index}`,
+        text: item.str,
+        x: item.transform[4],
+        y: viewport.height - item.transform[5],
+        width: item.width,
+        height: item.height,
+        fontSize: item.height,
+        isEditing: false,
+        isNew: false,
+      }));
+
+      setTextItems(extractedItems);
     } catch (error) {
       console.error('Upload failed:', error);
       alert('Failed to upload PDF. Please try again.');
@@ -93,160 +114,112 @@ export default function EditPDFPage() {
     }
   };
 
-  const handleCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (selectedTool === 'text') {
+  const handlePageClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (selectedTool === 'text' && mode === 'edit') {
       const rect = e.currentTarget.getBoundingClientRect();
       const x = (e.clientX - rect.left) / scale;
       const y = (e.clientY - rect.top) / scale;
 
-      const text = prompt('Enter text:');
-      if (text) {
-        const newElement: TextElement = {
-          id: `text-${Date.now()}`,
-          x,
-          y,
-          text,
-          size: fontSize,
-          color: selectedColor,
-        };
-        setTextElements([...textElements, newElement]);
-      }
-    }
-  };
-
-  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (selectedTool === 'draw' || selectedTool === 'highlight') {
-      setIsDrawing(true);
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / scale;
-      const y = (e.clientY - rect.top) / scale;
-      setCurrentDrawing([{ x, y }]);
-    }
-  };
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isDrawing && (selectedTool === 'draw' || selectedTool === 'highlight')) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / scale;
-      const y = (e.clientY - rect.top) / scale;
-      setCurrentDrawing([...currentDrawing, { x, y }]);
-    }
-  };
-
-  const handleMouseUp = () => {
-    if (isDrawing && currentDrawing.length > 0) {
-      const newDrawing: DrawingElement = {
-        id: `draw-${Date.now()}`,
-        type: selectedTool === 'highlight' ? 'highlight' : 'line',
-        x: 0,
-        y: 0,
-        points: currentDrawing,
-        color: selectedTool === 'highlight' ? 'rgba(255, 255, 0, 0.3)' : selectedColor,
-        strokeWidth: selectedTool === 'highlight' ? 20 : 2,
+      // Add new text item
+      const newItem: TextItem = {
+        id: `new-${Date.now()}`,
+        text: 'Click to edit',
+        x,
+        y,
+        width: 100,
+        height: 20,
+        fontSize: 16,
+        isEditing: true,
+        isNew: true,
       };
-      setDrawingElements([...drawingElements, newDrawing]);
-      setCurrentDrawing([]);
-      setIsDrawing(false);
+
+      setTextItems([...textItems, newItem]);
+      setSelectedItem(newItem.id);
+    }
+  };
+
+  const handleTextClick = (e: React.MouseEvent, itemId: string) => {
+    e.stopPropagation();
+    if (mode === 'edit') {
+      setSelectedItem(itemId);
+      setTextItems(textItems.map(item => 
+        item.id === itemId 
+          ? { ...item, isEditing: true }
+          : { ...item, isEditing: false }
+      ));
+    }
+  };
+
+  const handleTextChange = (itemId: string, newText: string) => {
+    setTextItems(textItems.map(item =>
+      item.id === itemId ? { ...item, text: newText } : item
+    ));
+  };
+
+  const handleTextBlur = (itemId: string) => {
+    setTextItems(textItems.map(item =>
+      item.id === itemId ? { ...item, isEditing: false } : item
+    ));
+  };
+
+  const deleteSelectedItem = () => {
+    if (selectedItem) {
+      setTextItems(textItems.filter(item => item.id !== selectedItem));
+      setSelectedItem(null);
     }
   };
 
   const handleSave = async () => {
-  if (!documentId) return;
+    if (!documentId) return;
 
-  setLoading(true);
+    setLoading(true);
 
-  try {
-    // Prepare operations for backend - Add explicit type
-    const operations: Array<{
-      type: string;
-      page: number;
-      x?: number;
-      y?: number;
-      text?: string;
-      size?: number;
-      color?: [number, number, number];
-      area?: {
-        x0: number;
-        y0: number;
-        x1: number;
-        y1: number;
-      };
-    }> = [];
+    try {
+      const operations: EditOperation[] = [];
 
-    // Add text elements
-    textElements.forEach((el) => {
-      operations.push({
-        type: 'add_text',
-        page: currentPage,
-        x: el.x,
-        y: el.y,
-        text: el.text,
-        size: el.size,
-        color: hexToRgb(el.color),
+      // Process text items
+      textItems.forEach((item) => {
+        if (item.isNew) {
+          operations.push({
+            type: 'add_text',
+            page: currentPage,
+            x: item.x,
+            y: pageHeight - item.y,
+            text: item.text,
+            size: item.fontSize,
+            color: [0, 0, 0],
+          });
+        }
       });
-    });
 
-    // Add drawing elements (simplified - just highlights for now)
-    drawingElements.forEach((el) => {
-      if (el.type === 'highlight' && el.points && el.points.length > 0) {
-        const minX = Math.min(...el.points.map(p => p.x));
-        const maxX = Math.max(...el.points.map(p => p.x));
-        const minY = Math.min(...el.points.map(p => p.y));
-        const maxY = Math.max(...el.points.map(p => p.y));
-        
-        operations.push({
-          type: 'highlight_text',
-          page: currentPage,
-          area: {
-            x0: minX,
-            y0: minY,
-            x1: maxX,
-            y1: maxY,
-          },
-          color: [1, 1, 0], // Yellow
-        });
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app/api'}/documents/${documentId}/edit/`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ operations }),
+        }
+      );
+
+      if (!response.ok) throw new Error('Save failed');
+
+      const data = await response.json();
+
+      if (data.download_url) {
+        const baseUrl = 'https://positive-creativity-production.up.railway.app';
+        let cleanUrl = data.download_url;
+        if (cleanUrl.startsWith('/api/')) {
+          cleanUrl = cleanUrl.replace('/api/', '/');
+        }
+        const fullUrl = cleanUrl.startsWith('http') ? cleanUrl : `${baseUrl}/api${cleanUrl}`;
+        setResultUrl(fullUrl);
       }
-    });
-
-    const response = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app/api'}/documents/${documentId}/edit/`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ operations }),
-      }
-    );
-
-    if (!response.ok) throw new Error('Save failed');
-
-    const data = await response.json();
-
-    if (data.download_url) {
-      const baseUrl = 'https://positive-creativity-production.up.railway.app';
-      let cleanUrl = data.download_url;
-      if (cleanUrl.startsWith('/api/')) {
-        cleanUrl = cleanUrl.replace('/api/', '/');
-      }
-      const fullUrl = cleanUrl.startsWith('http') ? cleanUrl : `${baseUrl}/api${cleanUrl}`;
-      setResultUrl(fullUrl);
+    } catch (error) {
+      console.error('Save failed:', error);
+      alert('Failed to save changes. Please try again.');
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    console.error('Save failed:', error);
-    alert('Failed to save changes. Please try again.');
-  } finally {
-    setLoading(false);
-  }
-};
-
-  const hexToRgb = (hex: string): [number, number, number] => {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result
-      ? [
-          parseInt(result[1], 16) / 255,
-          parseInt(result[2], 16) / 255,
-          parseInt(result[3], 16) / 255,
-        ]
-      : [0, 0, 0];
   };
 
   const handleReset = () => {
@@ -257,8 +230,8 @@ export default function EditPDFPage() {
     setNumPages(0);
     setCurrentPage(1);
     setResultUrl('');
-    setTextElements([]);
-    setDrawingElements([]);
+    setTextItems([]);
+    setSelectedItem(null);
   };
 
   const handleDownload = () => {
@@ -270,11 +243,6 @@ export default function EditPDFPage() {
       link.click();
       document.body.removeChild(link);
     }
-  };
-
-  const clearAllEdits = () => {
-    setTextElements([]);
-    setDrawingElements([]);
   };
 
   return (
@@ -355,176 +323,155 @@ export default function EditPDFPage() {
       ) : (
         // Editor State
         <div className="flex h-[calc(100vh-80px)]">
-          {/* Left Toolbar */}
-          <div className="w-20 bg-white border-r border-gray-200 flex flex-col items-center py-4 space-y-2">
-            <button
-              onClick={() => setSelectedTool('select')}
-              className={`p-3 rounded-lg transition-colors ${
-                selectedTool === 'select' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'
-              }`}
-              title="Select"
-            >
-              <MousePointer className="w-6 h-6" />
-            </button>
-            <button
-              onClick={() => setSelectedTool('text')}
-              className={`p-3 rounded-lg transition-colors ${
-                selectedTool === 'text' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'
-              }`}
-              title="Add Text"
-            >
-              <Type className="w-6 h-6" />
-            </button>
-            <button
-              onClick={() => setSelectedTool('draw')}
-              className={`p-3 rounded-lg transition-colors ${
-                selectedTool === 'draw' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'
-              }`}
-              title="Draw"
-            >
-              <Pen className="w-6 h-6" />
-            </button>
-            <button
-              onClick={() => setSelectedTool('highlight')}
-              className={`p-3 rounded-lg transition-colors ${
-                selectedTool === 'highlight' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'
-              }`}
-              title="Highlight"
-            >
-              <Highlighter className="w-6 h-6" />
-            </button>
-            <button
-              onClick={() => setSelectedTool('rectangle')}
-              className={`p-3 rounded-lg transition-colors ${
-                selectedTool === 'rectangle' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'
-              }`}
-              title="Rectangle"
-            >
-              <Square className="w-6 h-6" />
-            </button>
-            <button
-              onClick={() => setSelectedTool('circle')}
-              className={`p-3 rounded-lg transition-colors ${
-                selectedTool === 'circle' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'
-              }`}
-              title="Circle"
-            >
-              <Circle className="w-6 h-6" />
-            </button>
-            
-            <div className="flex-1" />
-            
-            <button
-              onClick={clearAllEdits}
-              className="p-3 rounded-lg hover:bg-red-50 text-red-600 transition-colors"
-              title="Clear All"
-            >
-              <Trash2 className="w-6 h-6" />
-            </button>
+          {/* Left Sidebar - Page Thumbnails */}
+          <div className="w-24 bg-white border-r border-gray-200 overflow-y-auto">
+            <div className="p-2 space-y-2">
+              {Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => (
+                <div
+                  key={pageNum}
+                  onClick={() => setCurrentPage(pageNum)}
+                  className={`cursor-pointer border-2 rounded-lg overflow-hidden transition-all ${
+                    currentPage === pageNum ? 'border-blue-500 shadow-lg' : 'border-gray-200 hover:border-blue-300'
+                  }`}
+                >
+                  <div className="bg-white p-1">
+                    <Document file={fileUrl}>
+                      <Page
+                        pageNumber={pageNum}
+                        width={80}
+                        renderTextLayer={false}
+                        renderAnnotationLayer={false}
+                      />
+                    </Document>
+                  </div>
+                  <div className={`text-center text-xs py-1 ${
+                    currentPage === pageNum ? 'bg-blue-500 text-white' : 'bg-gray-50 text-gray-600'
+                  }`}>
+                    {pageNum}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Main Editor Area */}
-          <div className="flex-1 overflow-auto bg-gray-50">
-            <div className="flex items-center justify-center min-h-full p-8">
-              <div className="bg-white shadow-2xl">
+          <div className="flex-1 flex flex-col">
+            {/* Top Toolbar */}
+            <div className="bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setMode('annotate')}
+                  className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                    mode === 'annotate' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <Pen className="w-4 h-4" />
+                  Annotate
+                </button>
+                <button
+                  onClick={() => setMode('edit')}
+                  className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+                    mode === 'edit' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  ✏️ Edit
+                </button>
+                <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm">☀️</span>
+                <button className="p-2 hover:bg-gray-100 rounded-lg">
+                  <Hand className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Tools */}
+              {mode === 'edit' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSelectedTool('hand')}
+                    className={`p-2 rounded-lg transition-colors ${
+                      selectedTool === 'hand' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'
+                    }`}
+                    title="Hand"
+                  >
+                    <Hand className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={() => setSelectedTool('text')}
+                    className={`p-2 rounded-lg transition-colors ${
+                      selectedTool === 'text' ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'
+                    }`}
+                    title="Add Text"
+                  >
+                    <Type className="w-5 h-5" />
+                  </button>
+                  {selectedItem && (
+                    <button
+                      onClick={deleteSelectedItem}
+                      className="p-2 rounded-lg hover:bg-red-50 text-red-600"
+                      title="Delete"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* PDF Viewer */}
+            <div className="flex-1 overflow-auto bg-gray-50 relative">
+              <div className="flex items-start justify-center p-8">
                 <div
-                  ref={pageContainerRef}
-                  className="relative"
-                  onClick={handleCanvasClick}
-                  onMouseDown={handleMouseDown}
-                  onMouseMove={handleMouseMove}
-                  onMouseUp={handleMouseUp}
-                  style={{ transform: `scale(${scale})`, transformOrigin: 'top left' }}
+                  ref={pageRef}
+                  className="bg-white shadow-2xl relative"
+                  onClick={handlePageClick}
+                  style={{ transform: `scale(${scale})`, transformOrigin: 'top center' }}
                 >
                   <Document file={fileUrl}>
                     <Page
                       pageNumber={currentPage}
-                      renderTextLayer={true}
-                      renderAnnotationLayer={true}
+                      scale={1.5}
+                      renderTextLayer={false}
+                      renderAnnotationLayer={false}
                     />
                   </Document>
 
-                  {/* Text Overlays */}
-                  {textElements.map((el) => (
+                  {/* Editable Text Overlays */}
+                  {textItems.map((item) => (
                     <div
-                      key={el.id}
+                      key={item.id}
+                      onClick={(e) => handleTextClick(e, item.id)}
+                      className={`absolute cursor-pointer transition-all ${
+                        selectedItem === item.id ? 'border-2 border-dashed border-blue-500 bg-blue-50 bg-opacity-20' : ''
+                      } ${item.isNew ? 'border-2 border-dashed border-green-500' : ''}`}
                       style={{
-                        position: 'absolute',
-                        left: el.x,
-                        top: el.y,
-                        fontSize: el.size,
-                        color: el.color,
-                        cursor: 'move',
-                        userSelect: 'none',
+                        left: item.x,
+                        top: item.y,
+                        minWidth: item.width,
+                        minHeight: item.height,
+                        fontSize: item.fontSize,
+                        padding: '2px 4px',
                       }}
                     >
-                      {el.text}
+                      {item.isEditing ? (
+                        <input
+                          type="text"
+                          value={item.text}
+                          onChange={(e) => handleTextChange(item.id, e.target.value)}
+                          onBlur={() => handleTextBlur(item.id)}
+                          autoFocus
+                          className="w-full bg-transparent outline-none border-none"
+                          style={{ fontSize: item.fontSize }}
+                        />
+                      ) : (
+                        <span>{item.text}</span>
+                      )}
                     </div>
                   ))}
-
-                  {/* Drawing Overlays */}
-                  <svg
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      height: '100%',
-                      pointerEvents: 'none',
-                    }}
-                  >
-                    {drawingElements.map((el) => {
-                      if (el.type === 'line' && el.points) {
-                        const pathData = el.points
-                          .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`)
-                          .join(' ');
-                        return (
-                          <path
-                            key={el.id}
-                            d={pathData}
-                            stroke={el.color}
-                            strokeWidth={el.strokeWidth || 2}
-                            fill="none"
-                          />
-                        );
-                      }
-                      if (el.type === 'highlight' && el.points) {
-                        const pathData = el.points
-                          .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`)
-                          .join(' ');
-                        return (
-                          <path
-                            key={el.id}
-                            d={pathData}
-                            stroke={el.color}
-                            strokeWidth={el.strokeWidth || 20}
-                            fill="none"
-                            strokeLinecap="round"
-                          />
-                        );
-                      }
-                      return null;
-                    })}
-
-                    {/* Current drawing */}
-                    {isDrawing && currentDrawing.length > 0 && (
-                      <path
-                        d={currentDrawing
-                          .map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`)
-                          .join(' ')}
-                        stroke={selectedTool === 'highlight' ? 'rgba(255, 255, 0, 0.3)' : selectedColor}
-                        strokeWidth={selectedTool === 'highlight' ? 20 : 2}
-                        fill="none"
-                        strokeLinecap="round"
-                      />
-                    )}
-                  </svg>
                 </div>
               </div>
             </div>
 
-            {/* Page Navigation */}
-            <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-white shadow-lg rounded-full px-6 py-3 flex items-center gap-4">
+            {/* Bottom Toolbar */}
+            <div className="bg-white border-t border-gray-200 p-4 flex items-center justify-center gap-4">
               <button
                 onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                 disabled={currentPage === 1}
@@ -542,9 +489,9 @@ export default function EditPDFPage() {
               >
                 →
               </button>
-              
+
               <div className="w-px h-6 bg-gray-300 mx-2" />
-              
+
               <button
                 onClick={() => setScale(Math.max(0.5, scale - 0.1))}
                 className="p-2 rounded-lg hover:bg-gray-100"
@@ -564,7 +511,7 @@ export default function EditPDFPage() {
           {/* Right Sidebar */}
           <div className="w-80 bg-white border-l border-gray-200 p-6 overflow-y-auto">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Edit PDF</h2>
-            
+
             <p className="text-sm text-gray-600 mb-6">
               Select text to edit, move, or delete the existing content.
             </p>
@@ -574,36 +521,14 @@ export default function EditPDFPage() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Color
               </label>
-              <input
-                type="color"
-                value={selectedColor}
-                onChange={(e) => setSelectedColor(e.target.value)}
-                className="w-full h-10 rounded cursor-pointer"
-              />
+              <div className="w-full h-12 bg-gradient-to-r from-blue-400 to-purple-400 rounded-lg"></div>
             </div>
-
-            {/* Font Size */}
-            {selectedTool === 'text' && (
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Font Size: {fontSize}px
-                </label>
-                <input
-                  type="range"
-                  min="8"
-                  max="72"
-                  value={fontSize}
-                  onChange={(e) => setFontSize(Number(e.target.value))}
-                  className="w-full"
-                />
-              </div>
-            )}
 
             {/* Save Button */}
             <button
               onClick={handleSave}
-              disabled={loading || (textElements.length === 0 && drawingElements.length === 0)}
-              className="w-full px-6 py-4 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors font-semibold text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg"
+              disabled={loading || textItems.filter(i => i.isNew).length === 0}
+              className="w-full px-6 py-4 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors font-semibold text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg"
             >
               {loading ? (
                 <>
@@ -612,10 +537,7 @@ export default function EditPDFPage() {
                 </>
               ) : (
                 <>
-                  Edit PDF
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
+                  Edit PDF →
                 </>
               )}
             </button>
