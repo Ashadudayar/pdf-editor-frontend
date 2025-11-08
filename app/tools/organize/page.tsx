@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Upload, ArrowLeft, Download, RotateCcw, Plus, ArrowUpDown } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Upload, ArrowLeft, Download, RotateCcw, Plus, ArrowUpDown, X } from 'lucide-react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import {
@@ -36,9 +36,17 @@ interface PageItem {
   id: string;
   pageNumber: number;
   originalPageNumber: number;
+  fileIndex: number; // Track which file this page belongs to
 }
 
-function SortablePageItem({ page, file }: { page: PageItem; file: File }) {
+interface UploadedFile {
+  file: File;
+  documentId: string;
+  fileName: string;
+  pageCount: number;
+}
+
+function SortablePageItem({ page, files }: { page: PageItem; files: UploadedFile[] }) {
   const {
     attributes,
     listeners,
@@ -54,6 +62,8 @@ function SortablePageItem({ page, file }: { page: PageItem; file: File }) {
     opacity: isDragging ? 0.5 : 1,
   };
 
+  const currentFile = files[page.fileIndex];
+
   return (
     <div
       ref={setNodeRef}
@@ -66,12 +76,14 @@ function SortablePageItem({ page, file }: { page: PageItem; file: File }) {
     >
       {/* PDF Preview */}
       <div className="w-full aspect-[3/4] bg-gray-100 rounded-lg overflow-hidden mb-2">
-        <PDFPreview
-          file={file}
-          width={150}
-          height={200}
-          pageNumber={page.originalPageNumber}
-        />
+        {currentFile && (
+          <PDFPreview
+            file={currentFile.file}
+            width={150}
+            height={200}
+            pageNumber={page.originalPageNumber}
+          />
+        )}
       </div>
 
       {/* Page Number */}
@@ -83,13 +95,11 @@ function SortablePageItem({ page, file }: { page: PageItem; file: File }) {
 }
 
 export default function OrganizePDFPage() {
-  const [file, setFile] = useState<File | null>(null);
-  const [fileName, setFileName] = useState<string>('');
-  const [documentId, setDocumentId] = useState<string>('');
-  const [numPages, setNumPages] = useState<number>(0);
+  const [files, setFiles] = useState<UploadedFile[]>([]);
   const [pages, setPages] = useState<PageItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [resultUrl, setResultUrl] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -99,51 +109,73 @@ export default function OrganizePDFPage() {
   );
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const uploadedFile = e.target.files?.[0];
-    if (!uploadedFile) return;
+    const uploadedFiles = e.target.files;
+    if (!uploadedFiles || uploadedFiles.length === 0) return;
 
-    setFile(uploadedFile);
-    setFileName(uploadedFile.name);
     setLoading(true);
 
     try {
-      // Upload to backend
-      const formData = new FormData();
-      formData.append('file', uploadedFile);
+      const newFiles: UploadedFile[] = [];
+      const newPages: PageItem[] = [...pages];
+      let currentPageNumber = pages.length + 1;
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app/api'}/documents/`,
-        {
-          method: 'POST',
-          body: formData,
+      for (let i = 0; i < uploadedFiles.length; i++) {
+        const uploadedFile = uploadedFiles[i];
+
+        // Upload to backend
+        const formData = new FormData();
+        formData.append('file', uploadedFile);
+
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app/api'}/documents/`,
+          {
+            method: 'POST',
+            body: formData,
+          }
+        );
+
+        if (!response.ok) throw new Error('Upload failed');
+
+        const data = await response.json();
+
+        // Get page count from PDF
+        const pdfjs = await import('pdfjs-dist');
+        pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+        
+        const pdf = await pdfjs.getDocument(URL.createObjectURL(uploadedFile)).promise;
+        const pageCount = pdf.numPages;
+
+        const fileIndex = files.length + newFiles.length;
+
+        newFiles.push({
+          file: uploadedFile,
+          documentId: data.id,
+          fileName: uploadedFile.name,
+          pageCount: pageCount,
+        });
+
+        // Add pages from this file
+        for (let j = 1; j <= pageCount; j++) {
+          newPages.push({
+            id: `file-${fileIndex}-page-${j}`,
+            pageNumber: currentPageNumber++,
+            originalPageNumber: j,
+            fileIndex: fileIndex,
+          });
         }
-      );
+      }
 
-      if (!response.ok) throw new Error('Upload failed');
-
-      const data = await response.json();
-      setDocumentId(data.id);
-
-      // Get page count from PDF
-      const pdfjs = await import('pdfjs-dist');
-      pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
-      
-      const pdf = await pdfjs.getDocument(URL.createObjectURL(uploadedFile)).promise;
-      const pageCount = pdf.numPages;
-      
-      setNumPages(pageCount);
-      setPages(
-        Array.from({ length: pageCount }, (_, i) => ({
-          id: `page-${i + 1}`,
-          pageNumber: i + 1,
-          originalPageNumber: i + 1,
-        }))
-      );
+      setFiles([...files, ...newFiles]);
+      setPages(newPages);
     } catch (error) {
       console.error('Upload failed:', error);
       alert('Failed to upload PDF. Please try again.');
     } finally {
       setLoading(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -167,14 +199,18 @@ export default function OrganizePDFPage() {
   };
 
   const handleReset = () => {
-    setPages((prev) =>
-      [...prev]
-        .sort((a, b) => a.originalPageNumber - b.originalPageNumber)
-        .map((item, index) => ({
-          ...item,
-          pageNumber: index + 1,
-        }))
-    );
+    // Reset to original order
+    const sortedPages = [...pages].sort((a, b) => {
+      if (a.fileIndex !== b.fileIndex) {
+        return a.fileIndex - b.fileIndex;
+      }
+      return a.originalPageNumber - b.originalPageNumber;
+    });
+
+    setPages(sortedPages.map((item, index) => ({
+      ...item,
+      pageNumber: index + 1,
+    })));
   };
 
   const handleReverse = () => {
@@ -186,36 +222,80 @@ export default function OrganizePDFPage() {
     );
   };
 
+  const removeFile = (fileIndex: number) => {
+    // Remove all pages from this file
+    const remainingPages = pages
+      .filter(page => page.fileIndex !== fileIndex)
+      .map((page, index) => ({
+        ...page,
+        pageNumber: index + 1,
+        fileIndex: page.fileIndex > fileIndex ? page.fileIndex - 1 : page.fileIndex,
+      }));
+
+    const remainingFiles = files.filter((_, index) => index !== fileIndex);
+
+    setPages(remainingPages);
+    setFiles(remainingFiles);
+  };
+
   const handleOrganize = async () => {
-    if (!documentId) return;
+    if (files.length === 0) return;
 
     setLoading(true);
 
     try {
-      // Get page order (originalPageNumber in new order)
-      const pageOrder = pages.map((page) => page.originalPageNumber);
+      // If only one file, use organize endpoint
+      if (files.length === 1) {
+        const pageOrder = pages.map((page) => page.originalPageNumber);
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app/api'}/documents/${documentId}/organize/`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ page_order: pageOrder }),
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app/api'}/documents/${files[0].documentId}/organize/`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ page_order: pageOrder }),
+          }
+        );
+
+        if (!response.ok) throw new Error('Organize failed');
+
+        const data = await response.json();
+        
+        if (data.download_url) {
+          const baseUrl = 'https://positive-creativity-production.up.railway.app';
+          let cleanUrl = data.download_url;
+          if (cleanUrl.startsWith('/api/')) {
+            cleanUrl = cleanUrl.replace('/api/', '/');
+          }
+          const fullUrl = cleanUrl.startsWith('http') ? cleanUrl : `${baseUrl}/api${cleanUrl}`;
+          setResultUrl(fullUrl);
         }
-      );
+      } else {
+        // Multiple files - merge in the new order
+        const documentIds = pages.map(page => files[page.fileIndex].documentId);
 
-      if (!response.ok) throw new Error('Organize failed');
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app/api'}/documents/merge/`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ document_ids: documentIds }),
+          }
+        );
 
-      const data = await response.json();
-      
-      if (data.download_url) {
-        const baseUrl = 'https://positive-creativity-production.up.railway.app';
-        let cleanUrl = data.download_url;
-        if (cleanUrl.startsWith('/api/')) {
-          cleanUrl = cleanUrl.replace('/api/', '/');
+        if (!response.ok) throw new Error('Merge failed');
+
+        const data = await response.json();
+        
+        if (data.download_url) {
+          const baseUrl = 'https://positive-creativity-production.up.railway.app';
+          let cleanUrl = data.download_url;
+          if (cleanUrl.startsWith('/api/')) {
+            cleanUrl = cleanUrl.replace('/api/', '/');
+          }
+          const fullUrl = cleanUrl.startsWith('http') ? cleanUrl : `${baseUrl}/api${cleanUrl}`;
+          setResultUrl(fullUrl);
         }
-        const fullUrl = cleanUrl.startsWith('http') ? cleanUrl : `${baseUrl}/api${cleanUrl}`;
-        setResultUrl(fullUrl);
       }
     } catch (error) {
       console.error('Organize failed:', error);
@@ -226,10 +306,7 @@ export default function OrganizePDFPage() {
   };
 
   const handleResetAll = () => {
-    setFile(null);
-    setFileName('');
-    setDocumentId('');
-    setNumPages(0);
+    setFiles([]);
     setPages([]);
     setResultUrl('');
   };
@@ -244,6 +321,8 @@ export default function OrganizePDFPage() {
       document.body.removeChild(link);
     }
   };
+
+  const totalPages = pages.length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-red-50">
@@ -299,7 +378,7 @@ export default function OrganizePDFPage() {
               </div>
             </div>
           </div>
-        ) : !file ? (
+        ) : files.length === 0 ? (
           // Upload State
           <div className="bg-white rounded-2xl shadow-lg p-8">
             <div className="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center hover:border-orange-400 transition-colors">
@@ -309,14 +388,16 @@ export default function OrganizePDFPage() {
                 onChange={handleFileUpload}
                 className="hidden"
                 id="file-upload"
+                ref={fileInputRef}
+                multiple
               />
               <label htmlFor="file-upload" className="cursor-pointer">
                 <Upload className="w-16 h-16 text-orange-500 mx-auto mb-4" />
                 <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                  Upload PDF File
+                  Upload PDF File(s)
                 </h3>
                 <p className="text-gray-600 mb-1">Click to select or drag and drop</p>
-                <p className="text-sm text-gray-500">Upload a PDF to organize pages</p>
+                <p className="text-sm text-gray-500">Upload PDF(s) to organize pages</p>
               </label>
             </div>
           </div>
@@ -360,7 +441,7 @@ export default function OrganizePDFPage() {
                   >
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                       {pages.map((page) => (
-                        <SortablePageItem key={page.id} page={page} file={file} />
+                        <SortablePageItem key={page.id} page={page} files={files} />
                       ))}
                     </div>
                   </SortableContext>
@@ -382,18 +463,41 @@ export default function OrganizePDFPage() {
                   </button>
                 </div>
                 
-                <div className="flex items-center gap-2 p-3 bg-red-50 rounded-lg">
-                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                  <p className="text-sm text-gray-900 truncate flex-1">{fileName}</p>
+                {/* File List */}
+                <div className="space-y-2 mb-4">
+                  {files.map((file, index) => (
+                    <div key={index} className="flex items-center gap-2 p-3 bg-red-50 rounded-lg group">
+                      <svg className="w-5 h-5 text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                      </svg>
+                      <p className="text-sm text-gray-900 truncate flex-1">{file.fileName}</p>
+                      <button
+                        onClick={() => removeFile(index)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-100 rounded"
+                      >
+                        <X className="w-4 h-4 text-red-600" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
 
                 {/* Add Files Button */}
-                <button className="w-full mt-4 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 text-gray-700">
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="add-files"
+                  ref={fileInputRef}
+                  multiple
+                />
+                <label
+                  htmlFor="add-files"
+                  className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 text-gray-700 cursor-pointer"
+                >
                   <Plus className="w-5 h-5" />
                   <span className="text-sm font-medium">Add more files</span>
-                </button>
+                </label>
               </div>
 
               {/* Organize Button */}
@@ -435,11 +539,11 @@ export default function OrganizePDFPage() {
           </div>
           <div className="text-center">
             <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
-              <RotateCcw className="w-6 h-6 text-blue-600" />
+              <Plus className="w-6 h-6 text-blue-600" />
             </div>
-            <h3 className="font-semibold text-gray-900 mb-1">Reset & Reverse</h3>
+            <h3 className="font-semibold text-gray-900 mb-1">Multiple Files</h3>
             <p className="text-sm text-gray-600">
-              Quick tools to reorganize pages
+              Add and organize multiple PDFs
             </p>
           </div>
           <div className="text-center">
