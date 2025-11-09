@@ -19,7 +19,6 @@ interface TextBlock {
   height: number;
   fontSize: number;
   fontFamily: string;
-  transform: number[];
   isEditing: boolean;
   isModified: boolean;
 }
@@ -37,15 +36,14 @@ export default function EditPDFPage() {
   const [textBlocks, setTextBlocks] = useState<TextBlock[]>([]);
   const [selectedBlock, setSelectedBlock] = useState<string | null>(null);
   
-  // Canvas for background rendering (graphics only)
-  const [pageCanvas, setPageCanvas] = useState<string>('');
+  const [backgroundImage, setBackgroundImage] = useState<string>('');
   const [pageThumbnails, setPageThumbnails] = useState<string[]>([]);
   const [pageWidth, setPageWidth] = useState<number>(0);
   const [pageHeight, setPageHeight] = useState<number>(0);
   const [scale] = useState<number>(1.5);
 
-  // Render page to canvas (graphics only, no text)
-  const renderPageToCanvas = async (page: any): Promise<string> => {
+  // Render page WITHOUT text to canvas
+  const renderPageWithoutText = async (page: any): Promise<string> => {
     const viewport = page.getViewport({ scale });
     
     const canvas = document.createElement('canvas');
@@ -53,16 +51,37 @@ export default function EditPDFPage() {
     canvas.height = viewport.height;
     canvas.width = viewport.width;
 
-    // Render page (this includes everything including text unfortunately)
+    // Fill white background
+    context.fillStyle = 'white';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Render page
     await page.render({
       canvasContext: context,
       viewport: viewport,
     }).promise;
 
+    // Extract text content to know where to paint white rectangles
+    const textContent = await page.getTextContent();
+    
+    // Paint white rectangles over all text positions
+    context.fillStyle = 'white';
+    textContent.items.forEach((item: any) => {
+      if (item.str && item.str.trim()) {
+        const tx = item.transform;
+        const x = tx[4];
+        const y = viewport.height - tx[5];
+        const height = Math.sqrt(tx[2] * tx[2] + tx[3] * tx[3]);
+        
+        // Paint white rectangle with extra padding to ensure full coverage
+        context.fillRect(x - 2, y - height - 2, item.width + 4, height + 4);
+      }
+    });
+
     return canvas.toDataURL('image/png');
   };
 
-  // Extract text with exact positions using PDF.js text layer API
+  // Extract text blocks with exact positions
   const extractTextBlocks = async (page: any): Promise<TextBlock[]> => {
     const viewport = page.getViewport({ scale });
     const textContent = await page.getTextContent();
@@ -70,11 +89,10 @@ export default function EditPDFPage() {
     const blocks: TextBlock[] = [];
     const items = textContent.items;
 
-    // Group text items into blocks based on proximity
+    // Group text items into blocks
     const VERTICAL_THRESHOLD = 5;
     const HORIZONTAL_GAP = 15;
 
-    // Sort by Y position, then X
     const sortedItems = [...items].sort((a: any, b: any) => {
       const yDiff = Math.abs(a.transform[5] - b.transform[5]);
       if (yDiff < VERTICAL_THRESHOLD) {
@@ -109,7 +127,7 @@ export default function EditPDFPage() {
       lines.push(currentLine);
     }
 
-    // Group lines into text blocks based on horizontal gaps
+    // Group lines into blocks
     let blockId = 0;
 
     lines.forEach((line) => {
@@ -125,7 +143,6 @@ export default function EditPDFPage() {
           if (gap < HORIZONTAL_GAP) {
             currentBlock.push(item);
           } else {
-            // Save current block
             blocks.push(createBlockFromItems(currentBlock, viewport, `block-${currentPage}-${blockId++}`));
             currentBlock = [item];
           }
@@ -141,19 +158,15 @@ export default function EditPDFPage() {
   };
 
   const createBlockFromItems = (items: any[], viewport: any, id: string): TextBlock => {
-    // Combine text
     const text = items.map(item => item.str).join(' ');
     
-    // Calculate bounding box
     const minX = Math.min(...items.map(item => item.transform[4]));
     const maxX = Math.max(...items.map(item => item.transform[4] + item.width));
     const minY = Math.min(...items.map(item => item.transform[5]));
     const maxY = Math.max(...items.map(item => item.transform[5] + item.height));
     
-    // Get font size (height of text)
     const fontSize = items[0].height;
     
-    // Get font family
     let fontFamily = 'Arial, sans-serif';
     if (items[0].fontName) {
       const fn = items[0].fontName.toLowerCase();
@@ -167,12 +180,11 @@ export default function EditPDFPage() {
       text,
       originalText: text,
       x: minX,
-      y: viewport.height - maxY, // Convert to top-left coordinates
+      y: viewport.height - maxY,
       width: maxX - minX,
       height: maxY - minY,
       fontSize,
       fontFamily,
-      transform: items[0].transform,
       isEditing: false,
       isModified: false,
     };
@@ -211,7 +223,7 @@ export default function EditPDFPage() {
       const thumbs: string[] = [];
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
-        const thumb = await renderPageToCanvas(page);
+        const thumb = await renderPageWithoutText(page);
         thumbs.push(thumb);
       }
       setPageThumbnails(thumbs);
@@ -233,11 +245,11 @@ export default function EditPDFPage() {
       setPageWidth(viewport.width);
       setPageHeight(viewport.height);
 
-      // Render page to canvas (background)
-      const canvas = await renderPageToCanvas(page);
-      setPageCanvas(canvas);
+      // Render background without text
+      const bg = await renderPageWithoutText(page);
+      setBackgroundImage(bg);
 
-      // Extract text blocks with positions
+      // Extract text blocks
       const blocks = await extractTextBlocks(page);
       setTextBlocks(blocks);
     } catch (error) {
@@ -295,7 +307,6 @@ export default function EditPDFPage() {
     setLoading(true);
 
     try {
-      // Prepare operations for backend
       const operations = modifiedBlocks.map(block => ({
         type: 'replace_text',
         page: currentPage,
@@ -352,7 +363,7 @@ export default function EditPDFPage() {
     setTextBlocks([]);
     setSelectedBlock(null);
     setEditMode(false);
-    setPageCanvas('');
+    setBackgroundImage('');
     setPageThumbnails([]);
   };
 
@@ -499,7 +510,7 @@ export default function EditPDFPage() {
               )}
             </div>
 
-            {/* PDF Viewer with Overlay */}
+            {/* PDF Viewer - Recreated Page */}
             <div className="flex-1 overflow-auto bg-gray-50 p-8">
               <div className="flex justify-center">
                 <div
@@ -509,42 +520,39 @@ export default function EditPDFPage() {
                     height: pageHeight,
                   }}
                 >
-                  {/* Background Canvas - PDF rendered as image */}
-                  {pageCanvas && (
+                  {/* Background Image - PDF with text removed */}
+                  {backgroundImage && (
                     <img
-                      src={pageCanvas}
-                      alt="PDF Page"
+                      src={backgroundImage}
+                      alt="PDF Background"
                       className="absolute top-0 left-0 w-full h-full pointer-events-none select-none"
                       draggable={false}
-                      style={{
-                        opacity: editMode ? 0.3 : 1, // Fade out when editing to see overlays clearly
-                      }}
                     />
                   )}
 
-                  {/* Text Block Overlays - Positioned absolutely based on PDF.js coordinates */}
+                  {/* Text Overlays - Recreate ALL text as HTML */}
                   {textBlocks.map((block) => (
                     <div
                       key={block.id}
                       onClick={(e) => handleBlockClick(e, block.id)}
                       onDoubleClick={(e) => handleBlockDoubleClick(e, block.id)}
                       className={`absolute transition-all ${
-                        editMode ? 'cursor-pointer' : 'pointer-events-none'
+                        editMode ? 'cursor-pointer' : ''
                       } ${
                         block.isEditing
                           ? 'z-50 bg-white border-2 border-blue-500 shadow-lg'
                           : editMode && selectedBlock === block.id
-                          ? 'border-2 border-dashed border-blue-500 bg-blue-50 bg-opacity-30'
+                          ? 'border-2 border-dashed border-blue-500 bg-blue-50 bg-opacity-20'
                           : editMode
-                          ? 'border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50 hover:bg-opacity-20'
-                          : 'bg-white'
-                      } ${block.isModified && editMode ? 'bg-yellow-100 bg-opacity-50' : ''}`}
+                          ? 'border-2 border-dashed border-transparent hover:border-blue-400 hover:bg-blue-50 hover:bg-opacity-10'
+                          : ''
+                      } ${block.isModified && editMode ? 'bg-yellow-100 bg-opacity-40' : ''}`}
                       style={{
                         left: `${block.x}px`,
                         top: `${block.y}px`,
                         minWidth: `${block.width}px`,
                         minHeight: `${block.height}px`,
-                        padding: '2px 4px',
+                        padding: '2px',
                       }}
                       title={editMode ? "Double-click to edit" : ""}
                     >
@@ -554,20 +562,21 @@ export default function EditPDFPage() {
                           onChange={(e) => handleTextChange(block.id, e.target.value)}
                           onBlur={() => handleTextBlur(block.id)}
                           autoFocus
-                          className="w-full h-full bg-transparent border-none outline-none resize-none"
+                          className="w-full h-full bg-transparent border-none outline-none resize-none p-0"
                           style={{
                             fontSize: `${block.fontSize}px`,
                             fontFamily: block.fontFamily,
-                            lineHeight: '1.1',
+                            lineHeight: '1',
+                            color: '#000',
                           }}
                         />
                       ) : (
                         <div
-                          className="whitespace-nowrap overflow-hidden"
+                          className="whitespace-nowrap"
                           style={{
                             fontSize: `${block.fontSize}px`,
                             fontFamily: block.fontFamily,
-                            lineHeight: '1.1',
+                            lineHeight: '1',
                             color: '#000',
                           }}
                         >
@@ -608,12 +617,12 @@ export default function EditPDFPage() {
             </p>
 
             <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <p className="text-sm text-blue-800 font-medium mb-2">💡 How to edit blocks:</p>
+              <p className="text-sm text-blue-800 font-medium mb-2">💡 How to edit:</p>
               <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
                 <li>Click "Edit" button</li>
-                <li>Hover to see text blocks</li>
+                <li>Hover to see blocks</li>
                 <li>Double-click to edit</li>
-                <li>Click Save when done</li>
+                <li>Click Save</li>
               </ol>
             </div>
 
