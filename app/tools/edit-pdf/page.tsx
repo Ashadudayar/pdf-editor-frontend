@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Upload, ArrowLeft, Download, Pen, Save, ZoomIn, ZoomOut, Type, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
+import { Upload, ArrowLeft, Download, Pen, Save, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 import Link from 'next/link';
 
 interface TextBlock {
@@ -55,6 +55,7 @@ export default function EditPDFPage() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [loading, setLoading] = useState(false);
   const [resultUrl, setResultUrl] = useState<string>('');
+  const [error, setError] = useState<string>('');
   
   const [editMode, setEditMode] = useState<boolean>(false);
   const [pageLayout, setPageLayout] = useState<PageLayout | null>(null);
@@ -72,8 +73,21 @@ export default function EditPDFPage() {
     const uploadedFile = e.target.files?.[0];
     if (!uploadedFile) return;
 
+    // Validate file type
+    if (!uploadedFile.name.toLowerCase().endsWith('.pdf')) {
+      setError('Please upload a PDF file');
+      return;
+    }
+
+    // Validate file size (max 50MB)
+    if (uploadedFile.size > 50 * 1024 * 1024) {
+      setError('File size must be less than 50MB');
+      return;
+    }
+
     setFile(uploadedFile);
     setLoading(true);
+    setError('');
 
     try {
       const formData = new FormData();
@@ -84,24 +98,33 @@ export default function EditPDFPage() {
         body: formData,
       });
 
-      if (!uploadResponse.ok) throw new Error('Upload failed');
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Upload failed');
+      }
 
       const uploadData = await uploadResponse.json();
       setDocumentId(uploadData.id);
 
       // Get page count
-      const countResponse = await fetch(`${API_URL}/documents/${uploadData.id}/page_count/`);
-      if (countResponse.ok) {
-        const countData = await countResponse.json();
-        setNumPages(countData.page_count);
-      } else {
+      try {
+        const countResponse = await fetch(`${API_URL}/documents/${uploadData.id}/page_count/`);
+        if (countResponse.ok) {
+          const countData = await countResponse.json();
+          setNumPages(countData.page_count);
+        } else {
+          setNumPages(1);
+        }
+      } catch {
         setNumPages(1);
       }
 
       await loadPageLayout(uploadData.id, 1);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Upload failed:', error);
-      alert('Failed to upload PDF. Please try again.');
+      setError(error.message || 'Failed to upload PDF. Please try again.');
+      setFile(null);
+      setDocumentId('');
     } finally {
       setLoading(false);
     }
@@ -110,22 +133,35 @@ export default function EditPDFPage() {
   const loadPageLayout = async (docId: string, pageNum: number) => {
     try {
       setLoading(true);
+      setError('');
       
       const response = await fetch(
-        `${API_URL}/documents/${docId}/extract_layout/?page=${pageNum}`
+        `${API_URL}/documents/${docId}/extract_layout/?page=${pageNum}`,
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+          },
+        }
       );
 
       if (!response.ok) {
         const errorText = await response.text();
         console.error('API Error:', errorText);
-        throw new Error(`Failed to extract layout: ${response.status}`);
+        throw new Error(`Failed to load page ${pageNum}. The PDF may be corrupted or password-protected.`);
       }
 
       const layout: PageLayout = await response.json();
       console.log('Layout loaded:', layout);
+      
+      // Validate layout data
+      if (!layout.page_width || !layout.page_height) {
+        throw new Error('Invalid PDF layout data');
+      }
+
       setPageLayout(layout);
 
-      const blocks = layout.text_blocks.map((block, index) => ({
+      const blocks = (layout.text_blocks || []).map((block, index) => ({
         ...block,
         id: `block-${pageNum}-${index}`,
         isEditing: false,
@@ -138,9 +174,14 @@ export default function EditPDFPage() {
       }));
 
       setTextBlocks(blocks);
-    } catch (error) {
+      setError('');
+    } catch (error: any) {
       console.error('Failed to load layout:', error);
-      alert('Failed to load page layout. This file may not be supported or may be corrupted.');
+      setError(error.message || 'Failed to load page. This PDF may not be supported.');
+      // Don't clear the layout on error for multi-page PDFs
+      if (pageNum === 1) {
+        setPageLayout(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -223,14 +264,6 @@ export default function EditPDFPage() {
     return 'Arial, sans-serif';
   };
 
-  const handleZoomIn = () => {
-    setZoom(prev => Math.min(prev + 0.1, 2.0));
-  };
-
-  const handleZoomOut = () => {
-    setZoom(prev => Math.max(prev - 0.1, 0.5));
-  };
-
   const handleSave = async () => {
     if (!documentId) return;
 
@@ -241,6 +274,7 @@ export default function EditPDFPage() {
     }
 
     setLoading(true);
+    setError('');
 
     try {
       const operations = modifiedBlocks.map(block => ({
@@ -264,7 +298,10 @@ export default function EditPDFPage() {
         body: JSON.stringify({ operations }),
       });
 
-      if (!response.ok) throw new Error('Save failed');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to save changes');
+      }
 
       const data = await response.json();
 
@@ -274,9 +311,9 @@ export default function EditPDFPage() {
           : `${API_URL.replace('/api', '')}${data.download_url}`;
         setResultUrl(fullUrl);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Save failed:', error);
-      alert('Failed to save changes. Please try again.');
+      setError(error.message || 'Failed to save changes. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -294,6 +331,7 @@ export default function EditPDFPage() {
     setPageLayout(null);
     setZoom(1.0);
     setShowFormatToolbar(false);
+    setError('');
   };
 
   const handleDownload = () => {
@@ -365,6 +403,12 @@ export default function EditPDFPage() {
         
         <div className="flex items-center justify-center min-h-[calc(100vh-80px)]">
           <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full mx-4">
+            {error && (
+              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-800">{error}</p>
+              </div>
+            )}
+            
             <div className="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center hover:border-blue-400">
               <input
                 type="file"
@@ -384,7 +428,7 @@ export default function EditPDFPage() {
                   {loading ? 'Processing...' : 'Upload PDF File'}
                 </h3>
                 <p className="text-gray-600 mb-1">Click to select or drag and drop</p>
-                <p className="text-sm text-gray-500">Upload a PDF to edit</p>
+                <p className="text-sm text-gray-500">Maximum file size: 50MB</p>
               </label>
             </div>
           </div>
@@ -412,6 +456,15 @@ export default function EditPDFPage() {
         </div>
       </div>
 
+      {/* Error Banner */}
+      {error && (
+        <div className="bg-red-50 border-b border-red-200 px-4 py-3">
+          <div className="max-w-7xl mx-auto">
+            <p className="text-sm text-red-800">⚠️ {error}</p>
+          </div>
+        </div>
+      )}
+
       <div className="flex h-[calc(100vh-80px)]">
         {/* Main Editor */}
         <div className="flex-1 flex flex-col">
@@ -427,26 +480,6 @@ export default function EditPDFPage() {
                 <Pen className="w-4 h-4" />
                 {editMode ? 'Editing...' : 'Edit'}
               </button>
-
-              <div className="flex items-center gap-2 border-l pl-4">
-                <button
-                  onClick={handleZoomOut}
-                  className="p-2 hover:bg-gray-100 rounded"
-                  title="Zoom Out"
-                >
-                  <ZoomOut className="w-4 h-4" />
-                </button>
-                <span className="text-sm font-medium min-w-[60px] text-center">
-                  {Math.round(zoom * 100)}%
-                </span>
-                <button
-                  onClick={handleZoomIn}
-                  className="p-2 hover:bg-gray-100 rounded"
-                  title="Zoom In"
-                >
-                  <ZoomIn className="w-4 h-4" />
-                </button>
-              </div>
               
               <span className="text-sm text-gray-600 border-l pl-4">
                 {editMode ? 'Double-click text to edit' : 'Click Edit to start'}
@@ -477,7 +510,7 @@ export default function EditPDFPage() {
           {/* Format Toolbar */}
           {showFormatToolbar && selectedBlock !== null && editMode && (
             <div
-              className="absolute bg-white shadow-lg rounded-lg border p-2 flex items-center gap-2 z-50"
+              className="fixed bg-white shadow-xl rounded-lg border-2 border-blue-200 p-2 flex items-center gap-2 z-50"
               style={{
                 left: formatToolbarPosition.x,
                 top: formatToolbarPosition.y,
@@ -506,21 +539,21 @@ export default function EditPDFPage() {
               <div className="border-l pl-2 flex gap-1">
                 <button
                   onClick={() => handleFormatChange('isBold', !textBlocks[selectedBlock]?.isBold)}
-                  className={`p-1 rounded ${textBlocks[selectedBlock]?.isBold ? 'bg-blue-100' : 'hover:bg-gray-100'}`}
+                  className={`p-1 rounded ${textBlocks[selectedBlock]?.isBold ? 'bg-blue-500 text-white' : 'hover:bg-gray-100'}`}
                   title="Bold"
                 >
                   <Bold className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => handleFormatChange('isItalic', !textBlocks[selectedBlock]?.isItalic)}
-                  className={`p-1 rounded ${textBlocks[selectedBlock]?.isItalic ? 'bg-blue-100' : 'hover:bg-gray-100'}`}
+                  className={`p-1 rounded ${textBlocks[selectedBlock]?.isItalic ? 'bg-blue-500 text-white' : 'hover:bg-gray-100'}`}
                   title="Italic"
                 >
                   <Italic className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => handleFormatChange('isUnderline', !textBlocks[selectedBlock]?.isUnderline)}
-                  className={`p-1 rounded ${textBlocks[selectedBlock]?.isUnderline ? 'bg-blue-100' : 'hover:bg-gray-100'}`}
+                  className={`p-1 rounded ${textBlocks[selectedBlock]?.isUnderline ? 'bg-blue-500 text-white' : 'hover:bg-gray-100'}`}
                   title="Underline"
                 >
                   <Underline className="w-4 h-4" />
@@ -530,21 +563,21 @@ export default function EditPDFPage() {
               <div className="border-l pl-2 flex gap-1">
                 <button
                   onClick={() => handleFormatChange('align', 'left')}
-                  className={`p-1 rounded ${textBlocks[selectedBlock]?.align === 'left' ? 'bg-blue-100' : 'hover:bg-gray-100'}`}
+                  className={`p-1 rounded ${textBlocks[selectedBlock]?.align === 'left' ? 'bg-blue-500 text-white' : 'hover:bg-gray-100'}`}
                   title="Align Left"
                 >
                   <AlignLeft className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => handleFormatChange('align', 'center')}
-                  className={`p-1 rounded ${textBlocks[selectedBlock]?.align === 'center' ? 'bg-blue-100' : 'hover:bg-gray-100'}`}
+                  className={`p-1 rounded ${textBlocks[selectedBlock]?.align === 'center' ? 'bg-blue-500 text-white' : 'hover:bg-gray-100'}`}
                   title="Align Center"
                 >
                   <AlignCenter className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => handleFormatChange('align', 'right')}
-                  className={`p-1 rounded ${textBlocks[selectedBlock]?.align === 'right' ? 'bg-blue-100' : 'hover:bg-gray-100'}`}
+                  className={`p-1 rounded ${textBlocks[selectedBlock]?.align === 'right' ? 'bg-blue-500 text-white' : 'hover:bg-gray-100'}`}
                   title="Align Right"
                 >
                   <AlignRight className="w-4 h-4" />
@@ -562,32 +595,39 @@ export default function EditPDFPage() {
                 style={{
                   width: pageLayout.page_width * zoom,
                   height: pageLayout.page_height * zoom,
-                  transform: `scale(1)`,
-                  transformOrigin: 'top center',
                 }}
                 onClick={() => {
                   setShowFormatToolbar(false);
                   setSelectedBlock(null);
                 }}
               >
-                {/* Render Images with white background */}
+                {/* White Background Layer */}
+                <div className="absolute inset-0 bg-white" />
+
+                {/* Render Images - Fixed background */}
                 {pageLayout.images.map((img, index) => (
                   <div
                     key={`img-${index}`}
-                    className="absolute bg-white"
+                    className="absolute overflow-hidden"
                     style={{
                       left: img.x * zoom,
                       top: img.y * zoom,
                       width: img.width * zoom,
                       height: img.height * zoom,
+                      backgroundColor: 'white',
                     }}
                   >
                     <img
                       src={img.data}
                       alt=""
-                      className="w-full h-full object-contain"
+                      className="w-full h-full"
                       style={{
-                        mixBlendMode: 'multiply',
+                        objectFit: 'contain',
+                        backgroundColor: 'white',
+                      }}
+                      onError={(e) => {
+                        console.error('Image load error:', e);
+                        e.currentTarget.style.display = 'none';
                       }}
                     />
                   </div>
@@ -619,7 +659,7 @@ export default function EditPDFPage() {
                       editMode ? 'cursor-pointer' : ''
                     } ${
                       block.isEditing
-                        ? 'z-50 bg-white border-2 border-blue-500'
+                        ? 'z-50 bg-white border-2 border-blue-500 shadow-lg'
                         : editMode && selectedBlock === index
                         ? 'border-2 border-dashed border-blue-500 bg-blue-50 bg-opacity-20'
                         : editMode
@@ -631,6 +671,7 @@ export default function EditPDFPage() {
                       top: block.y * zoom,
                       minWidth: block.width * zoom,
                       minHeight: block.height * zoom,
+                      padding: '2px',
                     }}
                   >
                     {block.isEditing ? (
@@ -674,39 +715,42 @@ export default function EditPDFPage() {
             </div>
           </div>
 
-          {/* Bottom Controls */}
+          {/* Bottom Controls with Zoom Slider */}
           <div className="bg-white border-t border-gray-200 p-4">
-            <div className="flex items-center justify-between max-w-4xl mx-auto">
+            <div className="flex items-center justify-between max-w-6xl mx-auto">
               <button
                 onClick={() => handlePageChange(currentPage - 1)}
-                disabled={currentPage === 1}
+                disabled={currentPage === 1 || loading}
                 className="px-4 py-2 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 ← Previous
               </button>
               
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-6">
                 <span className="text-sm font-medium">
                   Page {currentPage} of {numPages}
                 </span>
                 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                   <span className="text-sm text-gray-600">Zoom:</span>
                   <input
                     type="range"
                     min="50"
                     max="200"
+                    step="10"
                     value={zoom * 100}
                     onChange={(e) => setZoom(parseInt(e.target.value) / 100)}
-                    className="w-32"
+                    className="w-40 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                   />
-                  <span className="text-sm font-medium min-w-[50px]">{Math.round(zoom * 100)}%</span>
+                  <span className="text-sm font-medium min-w-[50px] text-center">
+                    {Math.round(zoom * 100)}%
+                  </span>
                 </div>
               </div>
               
               <button
                 onClick={() => handlePageChange(currentPage + 1)}
-                disabled={currentPage === numPages}
+                disabled={currentPage === numPages || loading}
                 className="px-4 py-2 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Next →
@@ -726,9 +770,9 @@ export default function EditPDFPage() {
             <p className="text-sm text-blue-800 font-medium mb-2">💡 How to edit:</p>
             <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
               <li>Click "Edit" button</li>
-              <li>Click text to select</li>
-              <li>Use toolbar to format</li>
+              <li>Click text to select & format</li>
               <li>Double-click to edit text</li>
+              <li>Use bottom slider to zoom</li>
               <li>Click Save when done</li>
             </ol>
           </div>
@@ -741,24 +785,27 @@ export default function EditPDFPage() {
             </div>
           )}
 
-          <div className="space-y-2">
-            <h3 className="font-medium text-sm text-gray-700">Pages:</h3>
-            <div className="flex flex-wrap gap-2">
-              {Array.from({ length: numPages }, (_, i) => i + 1).map((page) => (
-                <button
-                  key={page}
-                  onClick={() => handlePageChange(page)}
-                  className={`px-3 py-2 rounded text-sm font-medium ${
-                    currentPage === page
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {page}
-                </button>
-              ))}
+          {numPages > 1 && (
+            <div className="space-y-2">
+              <h3 className="font-medium text-sm text-gray-700">Pages:</h3>
+              <div className="grid grid-cols-4 gap-2">
+                {Array.from({ length: numPages }, (_, i) => i + 1).map((page) => (
+                  <button
+                    key={page}
+                    onClick={() => handlePageChange(page)}
+                    disabled={loading}
+                    className={`px-3 py-2 rounded text-sm font-medium ${
+                      currentPage === page
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
