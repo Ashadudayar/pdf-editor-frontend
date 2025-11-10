@@ -176,99 +176,94 @@ export default function EditPDFPage() {
       }
 
       // Validate and sanitize text blocks
-      const validTextBlocks = (layout.text_blocks || [])
-        .filter(block => {
-          try {
-            return (
-              block &&
-              typeof block.text === 'string' &&
-              block.text.trim().length > 0 &&
-              !isNaN(parseFloat(block.x)) &&
-              !isNaN(parseFloat(block.y)) &&
-              !isNaN(parseFloat(block.width)) &&
-              !isNaN(parseFloat(block.height)) &&
-              !isNaN(parseFloat(block.size))
-            );
-          } catch {
-            return false;
-          }
-        })
-        .map((block, index) => ({
-          ...block,
-          id: `block-${pageNum}-${index}`,
-          x: sanitizeNumber(block.x),
-          y: sanitizeNumber(block.y),
-          width: sanitizeNumber(block.width, 50),
-          height: sanitizeNumber(block.height, 12),
-          size: sanitizeNumber(block.size, 12),
-          color: isValidColor(block.color) ? block.color : 0,
-          flags: parseInt(block.flags) || 0,
-          isEditing: false,
-          isModified: false,
-          originalText: block.text,
-          isBold: ((parseInt(block.flags) || 0) & 16) !== 0,
-          isItalic: ((parseInt(block.flags) || 0) & 2) !== 0,
-          isUnderline: ((parseInt(block.flags) || 0) & 4) !== 0,
-          align: 'left' as 'left' | 'center' | 'right',
-        }));
+      // Validate and sanitize text blocks
+const validTextBlocks = (layout.text_blocks || [])
+  .filter(block => {
+    try {
+      // Check if required properties exist and are valid
+      const hasText = block && typeof block.text === 'string' && block.text.trim().length > 0;
+      const hasValidX = typeof block.x === 'number' && isFinite(block.x);
+      const hasValidY = typeof block.y === 'number' && isFinite(block.y);
+      const hasValidWidth = typeof block.width === 'number' && isFinite(block.width);
+      const hasValidHeight = typeof block.height === 'number' && isFinite(block.height);
+      const hasValidSize = typeof block.size === 'number' && isFinite(block.size);
+      
+      return hasText && hasValidX && hasValidY && hasValidWidth && hasValidHeight && hasValidSize;
+    } catch {
+      return false;
+    }
+  })
+  .map((block, index) => ({
+    ...block,
+    id: `block-${pageNum}-${index}`,
+    x: sanitizeNumber(block.x),
+    y: sanitizeNumber(block.y),
+    width: sanitizeNumber(block.width, 50),
+    height: sanitizeNumber(block.height, 12),
+    size: sanitizeNumber(block.size, 12),
+    color: isValidColor(block.color) ? block.color : 0,
+    flags: typeof block.flags === 'number' ? block.flags : 0,
+    isEditing: false,
+    isModified: false,
+    originalText: block.text,
+    isBold: ((typeof block.flags === 'number' ? block.flags : 0) & 16) !== 0,
+    isItalic: ((typeof block.flags === 'number' ? block.flags : 0) & 2) !== 0,
+    isUnderline: ((typeof block.flags === 'number' ? block.flags : 0) & 4) !== 0,
+    align: 'left' as 'left' | 'center' | 'right',
+  }));
 
-      // Validate and sanitize images
-      const validImages = (layout.images || [])
-        .filter(img => {
-          try {
-            return (
-              img &&
-              typeof img.data === 'string' &&
-              img.data.startsWith('data:image/') &&
-              !isNaN(parseFloat(img.x)) &&
-              !isNaN(parseFloat(img.y)) &&
-              !isNaN(parseFloat(img.width)) &&
-              !isNaN(parseFloat(img.height)) &&
-              parseFloat(img.width) > 0 &&
-              parseFloat(img.height) > 0
-            );
-          } catch {
-            return false;
-          }
-        })
-        .map(img => ({
-          data: img.data,
-          x: sanitizeNumber(img.x),
-          y: sanitizeNumber(img.y),
-          width: sanitizeNumber(img.width, 10),
-          height: sanitizeNumber(img.height, 10),
-        }));
+// Validate and sanitize images
+const validImages = (layout.images || [])
+  .filter(img => {
+    try {
+      const hasData = img && typeof img.data === 'string' && img.data.startsWith('data:image/');
+      const hasValidX = typeof img.x === 'number' && isFinite(img.x);
+      const hasValidY = typeof img.y === 'number' && isFinite(img.y);
+      const hasValidWidth = typeof img.width === 'number' && isFinite(img.width) && img.width > 0;
+      const hasValidHeight = typeof img.height === 'number' && isFinite(img.height) && img.height > 0;
+      
+      return hasData && hasValidX && hasValidY && hasValidWidth && hasValidHeight;
+    } catch {
+      return false;
+    }
+  })
+  .map(img => ({
+    data: img.data,
+    x: sanitizeNumber(img.x),
+    y: sanitizeNumber(img.y),
+    width: sanitizeNumber(img.width, 10),
+    height: sanitizeNumber(img.height, 10),
+  }));
 
-      // Validate and sanitize shapes
-      const validShapes = (layout.shapes || [])
-        .filter(shape => {
-          try {
-            return (
-              shape &&
-              Array.isArray(shape.rect) &&
-              shape.rect.length >= 4 &&
-              !isNaN(parseFloat(shape.rect[0])) &&
-              !isNaN(parseFloat(shape.rect[1])) &&
-              !isNaN(parseFloat(shape.rect[2])) &&
-              !isNaN(parseFloat(shape.rect[3]))
-            );
-          } catch {
-            return false;
-          }
-        })
-        .map(shape => ({
-          type: shape.type || 'path',
-          rect: [
-            sanitizeNumber(shape.rect[0]),
-            sanitizeNumber(shape.rect[1]),
-            sanitizeNumber(shape.rect[2]),
-            sanitizeNumber(shape.rect[3]),
-          ],
-          color: Array.isArray(shape.color) ? shape.color : [0, 0, 0],
-          width: sanitizeNumber(shape.width, 1),
-          fill: Array.isArray(shape.fill) ? shape.fill : null,
-        }));
-
+// Validate and sanitize shapes
+const validShapes = (layout.shapes || [])
+  .filter(shape => {
+    try {
+      if (!shape || !Array.isArray(shape.rect) || shape.rect.length < 4) {
+        return false;
+      }
+      
+      const allValid = shape.rect.slice(0, 4).every(
+        val => typeof val === 'number' && isFinite(val)
+      );
+      
+      return allValid;
+    } catch {
+      return false;
+    }
+  })
+  .map(shape => ({
+    type: shape.type || 'path',
+    rect: [
+      sanitizeNumber(shape.rect[0]),
+      sanitizeNumber(shape.rect[1]),
+      sanitizeNumber(shape.rect[2]),
+      sanitizeNumber(shape.rect[3]),
+    ],
+    color: Array.isArray(shape.color) ? shape.color : [0, 0, 0],
+    width: sanitizeNumber(shape.width, 1),
+    fill: Array.isArray(shape.fill) ? shape.fill : null,
+  }));
       const sanitizedLayout: PageLayout = {
         page_width: pageWidth,
         page_height: pageHeight,
