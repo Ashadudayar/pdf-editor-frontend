@@ -69,17 +69,27 @@ export default function EditPDFPage() {
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app/api';
   const pageRef = useRef<HTMLDivElement>(null);
 
+  // Validate and sanitize numbers
+  const sanitizeNumber = (value: any, defaultValue: number = 0): number => {
+    const num = parseFloat(value);
+    return isNaN(num) || !isFinite(num) ? defaultValue : num;
+  };
+
+  // Validate color value
+  const isValidColor = (color: any): boolean => {
+    const num = parseInt(color);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
     if (!uploadedFile) return;
 
-    // Validate file type
     if (!uploadedFile.name.toLowerCase().endsWith('.pdf')) {
       setError('Please upload a PDF file');
       return;
     }
 
-    // Validate file size (max 50MB)
     if (uploadedFile.size > 50 * 1024 * 1024) {
       setError('File size must be less than 50MB');
       return;
@@ -106,7 +116,6 @@ export default function EditPDFPage() {
       const uploadData = await uploadResponse.json();
       setDocumentId(uploadData.id);
 
-      // Get page count
       try {
         const countResponse = await fetch(`${API_URL}/documents/${uploadData.id}/page_count/`);
         if (countResponse.ok) {
@@ -155,30 +164,125 @@ export default function EditPDFPage() {
       console.log('Layout loaded:', layout);
       
       // Validate layout data
-      if (!layout.page_width || !layout.page_height) {
-        throw new Error('Invalid PDF layout data');
+      if (!layout || typeof layout !== 'object') {
+        throw new Error('Invalid layout data received');
       }
 
-      setPageLayout(layout);
+      const pageWidth = sanitizeNumber(layout.page_width, 595);
+      const pageHeight = sanitizeNumber(layout.page_height, 842);
 
-      const blocks = (layout.text_blocks || []).map((block, index) => ({
-        ...block,
-        id: `block-${pageNum}-${index}`,
-        isEditing: false,
-        isModified: false,
-        originalText: block.text,
-        isBold: (block.flags & 16) !== 0,
-        isItalic: (block.flags & 2) !== 0,
-        isUnderline: (block.flags & 4) !== 0,
-        align: 'left' as 'left' | 'center' | 'right',
-      }));
+      if (pageWidth <= 0 || pageHeight <= 0) {
+        throw new Error('Invalid page dimensions');
+      }
 
-      setTextBlocks(blocks);
+      // Validate and sanitize text blocks
+      const validTextBlocks = (layout.text_blocks || [])
+        .filter(block => {
+          try {
+            return (
+              block &&
+              typeof block.text === 'string' &&
+              block.text.trim().length > 0 &&
+              !isNaN(parseFloat(block.x)) &&
+              !isNaN(parseFloat(block.y)) &&
+              !isNaN(parseFloat(block.width)) &&
+              !isNaN(parseFloat(block.height)) &&
+              !isNaN(parseFloat(block.size))
+            );
+          } catch {
+            return false;
+          }
+        })
+        .map((block, index) => ({
+          ...block,
+          id: `block-${pageNum}-${index}`,
+          x: sanitizeNumber(block.x),
+          y: sanitizeNumber(block.y),
+          width: sanitizeNumber(block.width, 50),
+          height: sanitizeNumber(block.height, 12),
+          size: sanitizeNumber(block.size, 12),
+          color: isValidColor(block.color) ? block.color : 0,
+          flags: parseInt(block.flags) || 0,
+          isEditing: false,
+          isModified: false,
+          originalText: block.text,
+          isBold: ((parseInt(block.flags) || 0) & 16) !== 0,
+          isItalic: ((parseInt(block.flags) || 0) & 2) !== 0,
+          isUnderline: ((parseInt(block.flags) || 0) & 4) !== 0,
+          align: 'left' as 'left' | 'center' | 'right',
+        }));
+
+      // Validate and sanitize images
+      const validImages = (layout.images || [])
+        .filter(img => {
+          try {
+            return (
+              img &&
+              typeof img.data === 'string' &&
+              img.data.startsWith('data:image/') &&
+              !isNaN(parseFloat(img.x)) &&
+              !isNaN(parseFloat(img.y)) &&
+              !isNaN(parseFloat(img.width)) &&
+              !isNaN(parseFloat(img.height)) &&
+              parseFloat(img.width) > 0 &&
+              parseFloat(img.height) > 0
+            );
+          } catch {
+            return false;
+          }
+        })
+        .map(img => ({
+          data: img.data,
+          x: sanitizeNumber(img.x),
+          y: sanitizeNumber(img.y),
+          width: sanitizeNumber(img.width, 10),
+          height: sanitizeNumber(img.height, 10),
+        }));
+
+      // Validate and sanitize shapes
+      const validShapes = (layout.shapes || [])
+        .filter(shape => {
+          try {
+            return (
+              shape &&
+              Array.isArray(shape.rect) &&
+              shape.rect.length >= 4 &&
+              !isNaN(parseFloat(shape.rect[0])) &&
+              !isNaN(parseFloat(shape.rect[1])) &&
+              !isNaN(parseFloat(shape.rect[2])) &&
+              !isNaN(parseFloat(shape.rect[3]))
+            );
+          } catch {
+            return false;
+          }
+        })
+        .map(shape => ({
+          type: shape.type || 'path',
+          rect: [
+            sanitizeNumber(shape.rect[0]),
+            sanitizeNumber(shape.rect[1]),
+            sanitizeNumber(shape.rect[2]),
+            sanitizeNumber(shape.rect[3]),
+          ],
+          color: Array.isArray(shape.color) ? shape.color : [0, 0, 0],
+          width: sanitizeNumber(shape.width, 1),
+          fill: Array.isArray(shape.fill) ? shape.fill : null,
+        }));
+
+      const sanitizedLayout: PageLayout = {
+        page_width: pageWidth,
+        page_height: pageHeight,
+        text_blocks: validTextBlocks,
+        images: validImages,
+        shapes: validShapes,
+      };
+
+      setPageLayout(sanitizedLayout);
+      setTextBlocks(validTextBlocks);
       setError('');
     } catch (error: any) {
       console.error('Failed to load layout:', error);
       setError(error.message || 'Failed to load page. This PDF may not be supported.');
-      // Don't clear the layout on error for multi-page PDFs
       if (pageNum === 1) {
         setPageLayout(null);
       }
@@ -204,7 +308,6 @@ export default function EditPDFPage() {
     e.stopPropagation();
     setSelectedBlock(index);
     
-    // Show format toolbar
     const rect = e.currentTarget.getBoundingClientRect();
     setFormatToolbarPosition({
       x: rect.left,
@@ -250,18 +353,29 @@ export default function EditPDFPage() {
   };
 
   const rgbToHex = (colorInt: number): string => {
-    const r = (colorInt >> 16) & 0xFF;
-    const g = (colorInt >> 8) & 0xFF;
-    const b = colorInt & 0xFF;
-    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+    try {
+      const num = parseInt(String(colorInt));
+      if (isNaN(num)) return '#000000';
+      
+      const r = (num >> 16) & 0xFF;
+      const g = (num >> 8) & 0xFF;
+      const b = num & 0xFF;
+      return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+    } catch {
+      return '#000000';
+    }
   };
 
   const getFontFamily = (fontName: string): string => {
-    const lower = fontName.toLowerCase();
-    if (lower.includes('times')) return 'Times New Roman, serif';
-    if (lower.includes('courier')) return 'Courier New, monospace';
-    if (lower.includes('helvetica') || lower.includes('arial')) return 'Arial, sans-serif';
-    return 'Arial, sans-serif';
+    try {
+      const lower = String(fontName).toLowerCase();
+      if (lower.includes('times')) return 'Times New Roman, serif';
+      if (lower.includes('courier')) return 'Courier New, monospace';
+      if (lower.includes('helvetica') || lower.includes('arial')) return 'Arial, sans-serif';
+      return 'Arial, sans-serif';
+    } catch {
+      return 'Arial, sans-serif';
+    }
   };
 
   const handleSave = async () => {
@@ -405,7 +519,8 @@ export default function EditPDFPage() {
           <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full mx-4">
             {error && (
               <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-                <p className="text-sm text-red-800">{error}</p>
+                <p className="text-sm text-red-800 font-medium mb-1">Error</p>
+                <p className="text-sm text-red-700">{error}</p>
               </div>
             )}
             
@@ -459,8 +574,15 @@ export default function EditPDFPage() {
       {/* Error Banner */}
       {error && (
         <div className="bg-red-50 border-b border-red-200 px-4 py-3">
-          <div className="max-w-7xl mx-auto">
-            <p className="text-sm text-red-800">⚠️ {error}</p>
+          <div className="max-w-7xl mx-auto flex items-start gap-2">
+            <span className="text-red-600">⚠️</span>
+            <p className="text-sm text-red-800 flex-1">{error}</p>
+            <button
+              onClick={() => setError('')}
+              className="text-red-600 hover:text-red-800"
+            >
+              ×
+            </button>
           </div>
         </div>
       )}
@@ -508,7 +630,7 @@ export default function EditPDFPage() {
           </div>
 
           {/* Format Toolbar */}
-          {showFormatToolbar && selectedBlock !== null && editMode && (
+          {showFormatToolbar && selectedBlock !== null && editMode && textBlocks[selectedBlock] && (
             <div
               className="fixed bg-white shadow-xl rounded-lg border-2 border-blue-200 p-2 flex items-center gap-2 z-50"
               style={{
@@ -604,29 +726,24 @@ export default function EditPDFPage() {
                 {/* White Background Layer */}
                 <div className="absolute inset-0 bg-white" />
 
-                {/* Render Images - Fixed background */}
+                {/* Render Images */}
                 {pageLayout.images.map((img, index) => (
                   <div
                     key={`img-${index}`}
-                    className="absolute overflow-hidden"
+                    className="absolute overflow-hidden bg-white"
                     style={{
                       left: img.x * zoom,
                       top: img.y * zoom,
                       width: img.width * zoom,
                       height: img.height * zoom,
-                      backgroundColor: 'white',
                     }}
                   >
                     <img
                       src={img.data}
                       alt=""
-                      className="w-full h-full"
-                      style={{
-                        objectFit: 'contain',
-                        backgroundColor: 'white',
-                      }}
+                      className="w-full h-full object-contain"
                       onError={(e) => {
-                        console.error('Image load error:', e);
+                        console.error('Image load error');
                         e.currentTarget.style.display = 'none';
                       }}
                     />
@@ -634,83 +751,106 @@ export default function EditPDFPage() {
                 ))}
 
                 {/* Render Shapes */}
-                {pageLayout.shapes.map((shape, index) => (
-                  <div
-                    key={`shape-${index}`}
-                    className="absolute"
-                    style={{
-                      left: shape.rect[0] * zoom,
-                      top: shape.rect[1] * zoom,
-                      width: (shape.rect[2] - shape.rect[0]) * zoom,
-                      height: (shape.rect[3] - shape.rect[1]) * zoom,
-                      backgroundColor: shape.fill ? rgbToHex(shape.fill[0]) : 'transparent',
-                      border: `${shape.width * zoom}px solid ${rgbToHex(shape.color[0])}`,
-                    }}
-                  />
-                ))}
+                {pageLayout.shapes.map((shape, index) => {
+                  try {
+                    const x0 = shape.rect[0] * zoom;
+                    const y0 = shape.rect[1] * zoom;
+                    const x1 = shape.rect[2] * zoom;
+                    const y1 = shape.rect[3] * zoom;
+                    const width = Math.abs(x1 - x0);
+                    const height = Math.abs(y1 - y0);
 
-                {/* Render Text Blocks */}
-                {textBlocks.map((block, index) => (
-                  <div
-                    key={`text-${index}`}
-                    onClick={(e) => handleBlockClick(e, index)}
-                    onDoubleClick={(e) => handleBlockDoubleClick(e, index)}
-                    className={`absolute ${
-                      editMode ? 'cursor-pointer' : ''
-                    } ${
-                      block.isEditing
-                        ? 'z-50 bg-white border-2 border-blue-500 shadow-lg'
-                        : editMode && selectedBlock === index
-                        ? 'border-2 border-dashed border-blue-500 bg-blue-50 bg-opacity-20'
-                        : editMode
-                        ? 'hover:border-2 hover:border-dashed hover:border-blue-400'
-                        : ''
-                    } ${block.isModified && editMode ? 'bg-yellow-100 bg-opacity-30' : ''}`}
-                    style={{
-                      left: block.x * zoom,
-                      top: block.y * zoom,
-                      minWidth: block.width * zoom,
-                      minHeight: block.height * zoom,
-                      padding: '2px',
-                    }}
-                  >
-                    {block.isEditing ? (
-                      <input
-                        type="text"
-                        value={block.text}
-                        onChange={(e) => handleTextChange(index, e.target.value)}
-                        onBlur={() => handleTextBlur(index)}
-                        autoFocus
-                        className="w-full bg-transparent border-none outline-none"
+                    if (width <= 0 || height <= 0) return null;
+
+                    return (
+                      <div
+                        key={`shape-${index}`}
+                        className="absolute"
                         style={{
-                          fontSize: block.size * zoom,
-                          fontFamily: getFontFamily(block.font),
-                          fontWeight: block.isBold ? 'bold' : 'normal',
-                          fontStyle: block.isItalic ? 'italic' : 'normal',
-                          textDecoration: block.isUnderline ? 'underline' : 'none',
-                          textAlign: block.align || 'left',
-                          color: rgbToHex(block.color),
+                          left: Math.min(x0, x1),
+                          top: Math.min(y0, y1),
+                          width,
+                          height,
+                          backgroundColor: shape.fill ? rgbToHex(shape.fill[0]) : 'transparent',
+                          border: `${Math.max(shape.width * zoom, 0.5)}px solid ${rgbToHex(shape.color[0])}`,
                         }}
                       />
-                    ) : (
-                      <span
+                    );
+                  } catch (error) {
+                    console.error('Error rendering shape:', error);
+                    return null;
+                  }
+                })}
+
+                {/* Render Text Blocks */}
+                {textBlocks.map((block, index) => {
+                  try {
+                    return (
+                      <div
+                        key={`text-${index}`}
+                        onClick={(e) => handleBlockClick(e, index)}
+                        onDoubleClick={(e) => handleBlockDoubleClick(e, index)}
+                        className={`absolute ${
+                          editMode ? 'cursor-pointer' : ''
+                        } ${
+                          block.isEditing
+                            ? 'z-50 bg-white border-2 border-blue-500 shadow-lg'
+                            : editMode && selectedBlock === index
+                            ? 'border-2 border-dashed border-blue-500 bg-blue-50 bg-opacity-20'
+                            : editMode
+                            ? 'hover:border-2 hover:border-dashed hover:border-blue-400'
+                            : ''
+                        } ${block.isModified && editMode ? 'bg-yellow-100 bg-opacity-30' : ''}`}
                         style={{
-                          fontSize: block.size * zoom,
-                          fontFamily: getFontFamily(block.font),
-                          fontWeight: block.isBold ? 'bold' : 'normal',
-                          fontStyle: block.isItalic ? 'italic' : 'normal',
-                          textDecoration: block.isUnderline ? 'underline' : 'none',
-                          color: rgbToHex(block.color),
-                          whiteSpace: 'nowrap',
-                          display: 'block',
-                          textAlign: block.align || 'left',
+                          left: block.x * zoom,
+                          top: block.y * zoom,
+                          minWidth: block.width * zoom,
+                          minHeight: block.height * zoom,
+                          padding: '2px',
                         }}
                       >
-                        {block.text}
-                      </span>
-                    )}
-                  </div>
-                ))}
+                        {block.isEditing ? (
+                          <input
+                            type="text"
+                            value={block.text}
+                            onChange={(e) => handleTextChange(index, e.target.value)}
+                            onBlur={() => handleTextBlur(index)}
+                            autoFocus
+                            className="w-full bg-transparent border-none outline-none"
+                            style={{
+                              fontSize: block.size * zoom,
+                              fontFamily: getFontFamily(block.font),
+                              fontWeight: block.isBold ? 'bold' : 'normal',
+                              fontStyle: block.isItalic ? 'italic' : 'normal',
+                              textDecoration: block.isUnderline ? 'underline' : 'none',
+                              textAlign: block.align || 'left',
+                              color: rgbToHex(block.color),
+                            }}
+                          />
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: block.size * zoom,
+                              fontFamily: getFontFamily(block.font),
+                              fontWeight: block.isBold ? 'bold' : 'normal',
+                              fontStyle: block.isItalic ? 'italic' : 'normal',
+                              textDecoration: block.isUnderline ? 'underline' : 'none',
+                              color: rgbToHex(block.color),
+                              whiteSpace: 'nowrap',
+                              display: 'block',
+                              textAlign: block.align || 'left',
+                            }}
+                          >
+                            {block.text}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  } catch (error) {
+                    console.error('Error rendering text block:', error);
+                    return null;
+                  }
+                })}
               </div>
             </div>
           </div>
@@ -789,7 +929,7 @@ export default function EditPDFPage() {
             <div className="space-y-2">
               <h3 className="font-medium text-sm text-gray-700">Pages:</h3>
               <div className="grid grid-cols-4 gap-2">
-                {Array.from({ length: numPages }, (_, i) => i + 1).map((page) => (
+                {Array.from({ length: Math.min(numPages, 20) }, (_, i) => i + 1).map((page) => (
                   <button
                     key={page}
                     onClick={() => handlePageChange(page)}
@@ -803,6 +943,11 @@ export default function EditPDFPage() {
                     {page}
                   </button>
                 ))}
+                {numPages > 20 && (
+                  <div className="col-span-4 text-center text-sm text-gray-500">
+                    ...and {numPages - 20} more pages
+                  </div>
+                )}
               </div>
             </div>
           )}
