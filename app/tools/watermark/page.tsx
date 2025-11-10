@@ -5,7 +5,7 @@ import { Upload, ArrowLeft, Download, Type, Image as ImageIcon } from 'lucide-re
 import Link from 'next/link';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Set worker
+// Set worker with correct path
 if (typeof window !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 }
@@ -18,7 +18,6 @@ export default function WatermarkPage() {
   const [file, setFile] = useState<File | null>(null);
   const [documentId, setDocumentId] = useState<string>('');
   const [loading, setLoading] = useState(false);
-  const [resultUrl, setResultUrl] = useState<string>('');
   const [error, setError] = useState<string>('');
   
   const [watermarkType, setWatermarkType] = useState<WatermarkType>('text');
@@ -47,6 +46,7 @@ export default function WatermarkPage() {
   
   const [numPages, setNumPages] = useState(1);
   const [previewUrl, setPreviewUrl] = useState<string>('');
+  const [resultUrl, setResultUrl] = useState<string>('');
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app/api';
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -79,11 +79,15 @@ export default function WatermarkPage() {
       setDocumentId(uploadData.id);
 
       // Get page count
-      const countResponse = await fetch(`${API_URL}/documents/${uploadData.id}/page_count/`);
-      if (countResponse.ok) {
-        const { page_count } = await countResponse.json();
-        setNumPages(page_count);
-        setToPage(page_count);
+      try {
+        const countResponse = await fetch(`${API_URL}/documents/${uploadData.id}/page_count/`);
+        if (countResponse.ok) {
+          const { page_count } = await countResponse.json();
+          setNumPages(page_count);
+          setToPage(page_count);
+        }
+      } catch (err) {
+        console.log('Could not get page count, using default');
       }
 
       // Generate preview using PDF.js
@@ -103,7 +107,7 @@ export default function WatermarkPage() {
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       const page = await pdf.getPage(1);
       
-      const viewport = page.getViewport({ scale: 1.0 });
+      const viewport = page.getViewport({ scale: 1.5 });
       const canvas = document.createElement('canvas');
       const context = canvas.getContext('2d')!;
       
@@ -119,12 +123,12 @@ export default function WatermarkPage() {
       await page.render({
         canvasContext: context,
         viewport: viewport,
-        background: 'rgb(255,255,255)',
       }).promise;
       
       setPreviewUrl(canvas.toDataURL('image/png'));
     } catch (error) {
       console.error('Failed to generate preview:', error);
+      setError('Failed to generate PDF preview');
     }
   };
 
@@ -142,41 +146,46 @@ export default function WatermarkPage() {
   };
 
   const handleApplyWatermark = async () => {
-    if (!documentId) return;
+    if (!documentId) {
+      setError('Please upload a PDF first');
+      return;
+    }
+
+    if (watermarkType === 'text' && !watermarkText.trim()) {
+      setError('Please enter watermark text');
+      return;
+    }
+
+    if (watermarkType === 'image' && !watermarkImage) {
+      setError('Please select an image for watermark');
+      return;
+    }
 
     setLoading(true);
     setError('');
 
     try {
       const formData = new FormData();
+      formData.append('watermark_type', watermarkType);
       
       if (watermarkType === 'text') {
-        formData.append('text', watermarkText);
-        formData.append('font_name', font);
+        formData.append('watermark_text', watermarkText);
+        formData.append('font', font);
         formData.append('font_size', fontSize.toString());
-        formData.append('color', textColor);
         formData.append('bold', bold.toString());
         formData.append('italic', italic.toString());
-        formData.append('underline', underline.toString());
+        formData.append('text_color', textColor);
       } else if (watermarkImage) {
-        formData.append('image', watermarkImage);
-      } else {
-        alert('Please select an image for watermark');
-        setLoading(false);
-        return;
+        formData.append('watermark_image', watermarkImage);
       }
-
-      formData.append('position', position);
-      formData.append('opacity', (transparency / 100).toString());
-      formData.append('rotation', rotation.toString());
-      formData.append('mosaic', mosaic.toString());
-      formData.append('layer', layer);
       
-      // Page range
-      const pages = fromPage === 1 && toPage === numPages 
-        ? 'all' 
-        : `${fromPage}-${toPage}`;
-      formData.append('pages', pages);
+      formData.append('position', position);
+      formData.append('mosaic', mosaic.toString());
+      formData.append('transparency', transparency.toString());
+      formData.append('rotation', rotation.toString());
+      formData.append('from_page', fromPage.toString());
+      formData.append('to_page', toPage.toString());
+      formData.append('layer', layer);
 
       const response = await fetch(`${API_URL}/documents/${documentId}/add_watermark/`, {
         method: 'POST',
@@ -184,12 +193,13 @@ export default function WatermarkPage() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await response.json().catch(() => ({ error: 'Failed to add watermark' }));
         throw new Error(errorData.error || 'Failed to add watermark');
       }
 
       const data = await response.json();
 
+      // Set result URL for download
       if (data.download_url) {
         const fullUrl = data.download_url.startsWith('http')
           ? data.download_url
@@ -213,19 +223,18 @@ export default function WatermarkPage() {
     setWatermarkImage(null);
     setWatermarkImagePreview('');
     setPreviewUrl('');
+    setNumPages(1);
+    setFromPage(1);
+    setToPage(1);
   };
 
   const handleDownload = () => {
     if (resultUrl) {
-      const link = document.createElement('a');
-      link.href = resultUrl;
-      link.download = 'watermarked.pdf';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      window.open(resultUrl, '_blank');
     }
   };
 
+  // Success screen
   if (resultUrl) {
     return (
       <div className="min-h-screen bg-gray-100">
@@ -246,20 +255,20 @@ export default function WatermarkPage() {
               <Download className="w-10 h-10 text-green-600" />
             </div>
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Watermark Added Successfully!</h2>
-            <p className="text-gray-600 mb-8">Your PDF has been watermarked</p>
+            <p className="text-gray-600 mb-8">Your PDF has been watermarked and is ready to download</p>
             <div className="flex gap-4 justify-center">
               <button
                 onClick={handleDownload}
-                className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 font-medium"
               >
                 <Download className="w-5 h-5" />
                 Download PDF
               </button>
               <button
                 onClick={handleReset}
-                className="px-8 py-3 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                className="px-8 py-3 border-2 border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium"
               >
-                Add Another Watermark
+                Add Another
               </button>
             </div>
           </div>
@@ -268,6 +277,7 @@ export default function WatermarkPage() {
     );
   }
 
+  // Upload screen
   if (!file) {
     return (
       <div className="min-h-screen bg-gray-100">
@@ -290,7 +300,7 @@ export default function WatermarkPage() {
               </div>
             )}
 
-            <div className="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center hover:border-blue-400">
+            <div className="border-2 border-dashed border-gray-300 rounded-xl p-12 text-center hover:border-blue-400 transition-colors">
               <input
                 type="file"
                 accept=".pdf"
@@ -308,7 +318,7 @@ export default function WatermarkPage() {
                 <h3 className="text-xl font-semibold text-gray-900 mb-2">
                   {loading ? 'Loading PDF...' : 'Upload PDF File'}
                 </h3>
-                <p className="text-gray-600">Click to select or drag and drop</p>
+                <p className="text-gray-600">Click to select or drag and drop your PDF</p>
               </label>
             </div>
           </div>
@@ -317,6 +327,7 @@ export default function WatermarkPage() {
     );
   }
 
+  // Editor screen
   return (
     <div className="h-screen flex flex-col bg-gray-100 overflow-hidden">
       {/* Header - Fixed */}
@@ -331,8 +342,8 @@ export default function WatermarkPage() {
             </div>
             <button
               onClick={handleApplyWatermark}
-              disabled={loading || (watermarkType === 'text' && !watermarkText) || (watermarkType === 'image' && !watermarkImage)}
-              className="px-8 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+              disabled={loading || (watermarkType === 'text' && !watermarkText.trim()) || (watermarkType === 'image' && !watermarkImage)}
+              className="px-8 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
             >
               {loading ? 'Processing...' : 'Add Watermark'}
             </button>
@@ -349,65 +360,80 @@ export default function WatermarkPage() {
 
       {/* Main Content Area - Flex container */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Preview Area - Scrollable */}
-        <div className="flex-1 overflow-y-auto p-8">
-          <div className="flex items-center justify-center min-h-full">
-            <div className="bg-white rounded-lg shadow-2xl p-8 relative">
-              {previewUrl ? (
-                <div className="relative">
-                  <img src={previewUrl} alt="Preview" className="max-w-full max-h-[70vh]" />
-                  
-                  {/* Watermark Preview Overlay */}
-                  <div
-                    className="absolute inset-0 flex items-center justify-center pointer-events-none"
-                    style={{
-                      opacity: transparency / 100,
-                    }}
-                  >
-                    {watermarkType === 'text' ? (
-                      <div
-                        className={`${
-                          position.includes('top') ? 'items-start' :
-                          position.includes('bottom') ? 'items-end' :
-                          'items-center'
-                        } ${
-                          position.includes('left') ? 'justify-start' :
-                          position.includes('right') ? 'justify-end' :
-                          'justify-center'
-                        } flex w-full h-full p-8`}
+        {/* Preview Area - Fixed, centered */}
+        <div className="flex-1 flex items-center justify-center p-8 overflow-hidden">
+          <div className="bg-white rounded-lg shadow-2xl p-8 max-h-full overflow-auto">
+            {previewUrl ? (
+              <div className="relative">
+                <img 
+                  src={previewUrl} 
+                  alt="PDF Preview" 
+                  className="max-w-full max-h-[70vh] object-contain" 
+                />
+                
+                {/* Watermark Preview Overlay */}
+                <div
+                  className="absolute inset-0 flex items-center justify-center pointer-events-none"
+                  style={{
+                    opacity: transparency / 100,
+                  }}
+                >
+                  {watermarkType === 'text' ? (
+                    <div
+                      className={`${
+                        position.includes('top') ? 'items-start' :
+                        position.includes('bottom') ? 'items-end' :
+                        'items-center'
+                      } ${
+                        position.includes('left') ? 'justify-start' :
+                        position.includes('right') ? 'justify-end' :
+                        'justify-center'
+                      } flex w-full h-full p-8`}
+                    >
+                      <span
+                        style={{
+                          fontFamily: font,
+                          fontSize: `${fontSize * 0.5}px`, // Scaled down for preview
+                          color: textColor,
+                          fontWeight: bold ? 'bold' : 'normal',
+                          fontStyle: italic ? 'italic' : 'normal',
+                          textDecoration: underline ? 'underline' : 'none',
+                          transform: `rotate(${rotation}deg)`,
+                          whiteSpace: 'nowrap',
+                        }}
                       >
-                        <span
-                          style={{
-                            fontFamily: font,
-                            fontSize: `${fontSize}px`,
-                            color: textColor,
-                            fontWeight: bold ? 'bold' : 'normal',
-                            fontStyle: italic ? 'italic' : 'normal',
-                            textDecoration: underline ? 'underline' : 'none',
-                            transform: `rotate(${rotation}deg)`,
-                          }}
-                        >
-                          {watermarkText}
-                        </span>
-                      </div>
-                    ) : watermarkImagePreview ? (
+                        {watermarkText}
+                      </span>
+                    </div>
+                  ) : watermarkImagePreview ? (
+                    <div
+                      className={`${
+                        position.includes('top') ? 'items-start' :
+                        position.includes('bottom') ? 'items-end' :
+                        'items-center'
+                      } ${
+                        position.includes('left') ? 'justify-start' :
+                        position.includes('right') ? 'justify-end' :
+                        'justify-center'
+                      } flex w-full h-full p-8`}
+                    >
                       <img
                         src={watermarkImagePreview}
-                        alt="Watermark"
-                        className="max-w-xs max-h-xs"
+                        alt="Watermark Preview"
+                        className="max-w-[150px] max-h-[150px] object-contain"
                         style={{
                           transform: `rotate(${rotation}deg)`,
                         }}
                       />
-                    ) : null}
-                  </div>
+                    </div>
+                  ) : null}
                 </div>
-              ) : (
-                <div className="w-96 h-96 bg-gray-100 flex items-center justify-center">
-                  <p className="text-gray-500">Loading preview...</p>
-                </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="w-96 h-[500px] bg-gray-100 flex items-center justify-center">
+                <p className="text-gray-500">Loading preview...</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -423,7 +449,7 @@ export default function WatermarkPage() {
               <div className="flex gap-2">
                 <button
                   onClick={() => setWatermarkType('text')}
-                  className={`flex-1 p-4 rounded-lg border-2 flex flex-col items-center gap-2 ${
+                  className={`flex-1 p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-colors ${
                     watermarkType === 'text'
                       ? 'border-green-500 bg-green-50'
                       : 'border-gray-200 hover:border-gray-300'
@@ -431,7 +457,7 @@ export default function WatermarkPage() {
                 >
                   {watermarkType === 'text' && (
                     <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-xs">✓</span>
+                      <span className="text-white text-xs font-bold">✓</span>
                     </div>
                   )}
                   <Type className="w-8 h-8" />
@@ -440,7 +466,7 @@ export default function WatermarkPage() {
 
                 <button
                   onClick={() => setWatermarkType('image')}
-                  className={`flex-1 p-4 rounded-lg border-2 flex flex-col items-center gap-2 ${
+                  className={`flex-1 p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-colors ${
                     watermarkType === 'image'
                       ? 'border-green-500 bg-green-50'
                       : 'border-gray-200 hover:border-gray-300'
@@ -448,7 +474,7 @@ export default function WatermarkPage() {
                 >
                   {watermarkType === 'image' && (
                     <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
-                      <span className="text-white text-xs">✓</span>
+                      <span className="text-white text-xs font-bold">✓</span>
                     </div>
                   )}
                   <ImageIcon className="w-8 h-8" />
@@ -482,7 +508,7 @@ export default function WatermarkPage() {
                     <select
                       value={font}
                       onChange={(e) => setFont(e.target.value)}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
                       <option value="Arial">Arial</option>
                       <option value="Times New Roman">Times New Roman</option>
@@ -493,7 +519,7 @@ export default function WatermarkPage() {
                     <select
                       value={fontSize}
                       onChange={(e) => setFontSize(parseInt(e.target.value))}
-                      className="w-20 px-3 py-2 border border-gray-300 rounded-lg"
+                      className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
                       {[12, 16, 24, 32, 48, 64, 72, 96].map(size => (
                         <option key={size} value={size}>{size}</option>
@@ -504,7 +530,7 @@ export default function WatermarkPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => setBold(!bold)}
-                      className={`p-2 border rounded ${bold ? 'bg-gray-200' : ''}`}
+                      className={`p-2 border rounded transition-colors ${bold ? 'bg-gray-200 border-gray-400' : 'border-gray-300 hover:bg-gray-50'}`}
                       title="Bold"
                     >
                       <span className="font-bold">B</span>
@@ -512,7 +538,7 @@ export default function WatermarkPage() {
 
                     <button
                       onClick={() => setItalic(!italic)}
-                      className={`p-2 border rounded ${italic ? 'bg-gray-200' : ''}`}
+                      className={`p-2 border rounded transition-colors ${italic ? 'bg-gray-200 border-gray-400' : 'border-gray-300 hover:bg-gray-50'}`}
                       title="Italic"
                     >
                       <span className="italic">I</span>
@@ -520,7 +546,7 @@ export default function WatermarkPage() {
 
                     <button
                       onClick={() => setUnderline(!underline)}
-                      className={`p-2 border rounded ${underline ? 'bg-gray-200' : ''}`}
+                      className={`p-2 border rounded transition-colors ${underline ? 'bg-gray-200 border-gray-400' : 'border-gray-300 hover:bg-gray-50'}`}
                       title="Underline"
                     >
                       <span className="underline">U</span>
@@ -553,13 +579,13 @@ export default function WatermarkPage() {
                   />
                   <button
                     onClick={() => imageInputRef.current?.click()}
-                    className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-400 text-gray-600"
+                    className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-400 text-gray-600 transition-colors"
                   >
                     {watermarkImage ? watermarkImage.name : 'Click to select image'}
                   </button>
                   {watermarkImagePreview && (
                     <div className="mt-2">
-                      <img src={watermarkImagePreview} alt="Preview" className="w-full rounded" />
+                      <img src={watermarkImagePreview} alt="Preview" className="w-full rounded border" />
                     </div>
                   )}
                 </div>
@@ -576,7 +602,7 @@ export default function WatermarkPage() {
                   <button
                     key={pos}
                     onClick={() => setPosition(pos)}
-                    className={`aspect-square rounded-lg border-2 ${
+                    className={`aspect-square rounded-lg border-2 transition-colors ${
                       position === pos
                         ? 'border-red-500 bg-red-50'
                         : 'border-gray-300 hover:border-gray-400'
@@ -589,14 +615,14 @@ export default function WatermarkPage() {
                 ))}
               </div>
 
-              <label className="flex items-center gap-2 mt-3">
+              <label className="flex items-center gap-2 mt-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={mosaic}
                   onChange={(e) => setMosaic(e.target.checked)}
-                  className="w-4 h-4"
+                  className="w-4 h-4 cursor-pointer"
                 />
-                <span className="text-sm">Mosaic</span>
+                <span className="text-sm">Mosaic (tile watermark across page)</span>
               </label>
             </div>
 
@@ -611,7 +637,7 @@ export default function WatermarkPage() {
                 max="100"
                 value={transparency}
                 onChange={(e) => setTransparency(parseInt(e.target.value))}
-                className="w-full"
+                className="w-full cursor-pointer"
               />
             </div>
 
@@ -623,7 +649,7 @@ export default function WatermarkPage() {
               <select
                 value={rotation}
                 onChange={(e) => setRotation(parseInt(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="0">Do not rotate</option>
                 <option value="45">45°</option>
@@ -636,32 +662,39 @@ export default function WatermarkPage() {
             {/* Pages */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Pages:
+                Pages to watermark:
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-xs text-gray-600">from page</label>
+                  <label className="text-xs text-gray-600">From page</label>
                   <input
                     type="number"
                     min="1"
                     max={numPages}
                     value={fromPage}
-                    onChange={(e) => setFromPage(parseInt(e.target.value))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg mt-1"
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      if (val >= 1 && val <= numPages) setFromPage(val);
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg mt-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-600">to</label>
+                  <label className="text-xs text-gray-600">To page</label>
                   <input
                     type="number"
                     min="1"
                     max={numPages}
                     value={toPage}
-                    onChange={(e) => setToPage(parseInt(e.target.value))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg mt-1"
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      if (val >= 1 && val <= numPages) setToPage(val);
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg mt-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
               </div>
+              <p className="text-xs text-gray-500 mt-1">Total pages: {numPages}</p>
             </div>
 
             {/* Layer */}
@@ -672,28 +705,28 @@ export default function WatermarkPage() {
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => setLayer('over')}
-                  className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 ${
+                  className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-colors ${
                     layer === 'over'
                       ? 'border-red-500 bg-red-50'
-                      : 'border-gray-300'
+                      : 'border-gray-300 hover:border-gray-400'
                   }`}
                 >
                   <div className="text-red-600 text-2xl">◆</div>
-                  <span className={`text-xs text-center font-medium ${layer === 'over' ? 'text-red-600' : ''}`}>
+                  <span className={`text-xs text-center font-medium ${layer === 'over' ? 'text-red-600' : 'text-gray-600'}`}>
                     Over the PDF content
                   </span>
                 </button>
 
                 <button
                   onClick={() => setLayer('below')}
-                  className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 ${
+                  className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-colors ${
                     layer === 'below'
                       ? 'border-red-500 bg-red-50'
-                      : 'border-gray-300'
+                      : 'border-gray-300 hover:border-gray-400'
                   }`}
                 >
                   <div className="text-gray-400 text-2xl">◇</div>
-                  <span className={`text-xs text-center font-medium ${layer === 'below' ? 'text-red-600' : ''}`}>
+                  <span className={`text-xs text-center font-medium ${layer === 'below' ? 'text-red-600' : 'text-gray-600'}`}>
                     Below the PDF content
                   </span>
                 </button>
