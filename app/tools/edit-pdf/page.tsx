@@ -347,19 +347,27 @@ const validShapes = (layout.shapes || [])
     ));
   };
 
-  const rgbToHex = (colorInt: number): string => {
-    try {
-      const num = parseInt(String(colorInt));
+  // Update rgbToHex to handle both integer and array formats
+const rgbToHex = (color: number | number[]): string => {
+  try {
+    if (Array.isArray(color)) {
+      // Handle RGB array [r, g, b]
+      const [r, g, b] = color;
+      return `#${Math.round(r).toString(16).padStart(2, '0')}${Math.round(g).toString(16).padStart(2, '0')}${Math.round(b).toString(16).padStart(2, '0')}`;
+    } else {
+      // Handle integer color
+      const num = parseInt(String(color));
       if (isNaN(num)) return '#000000';
       
       const r = (num >> 16) & 0xFF;
       const g = (num >> 8) & 0xFF;
       const b = num & 0xFF;
       return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-    } catch {
-      return '#000000';
     }
-  };
+  } catch {
+    return '#000000';
+  }
+};
 
   const getFontFamily = (fontName: string): string => {
     try {
@@ -746,36 +754,40 @@ const validShapes = (layout.shapes || [])
                 ))}
 
                 {/* Render Shapes */}
-                {pageLayout.shapes.map((shape, index) => {
-                  try {
-                    const x0 = shape.rect[0] * zoom;
-                    const y0 = shape.rect[1] * zoom;
-                    const x1 = shape.rect[2] * zoom;
-                    const y1 = shape.rect[3] * zoom;
-                    const width = Math.abs(x1 - x0);
-                    const height = Math.abs(y1 - y0);
+                {/* Render Shapes */}
+{pageLayout.shapes.map((shape, index) => {
+  try {
+    const x0 = shape.rect[0] * zoom;
+    const y0 = shape.rect[1] * zoom;
+    const x1 = shape.rect[2] * zoom;
+    const y1 = shape.rect[3] * zoom;
+    const width = Math.abs(x1 - x0);
+    const height = Math.abs(y1 - y0);
 
-                    if (width <= 0 || height <= 0) return null;
+    if (width <= 0 || height <= 0) return null;
 
-                    return (
-                      <div
-                        key={`shape-${index}`}
-                        className="absolute"
-                        style={{
-                          left: Math.min(x0, x1),
-                          top: Math.min(y0, y1),
-                          width,
-                          height,
-                          backgroundColor: shape.fill ? rgbToHex(shape.fill[0]) : 'transparent',
-                          border: `${Math.max(shape.width * zoom, 0.5)}px solid ${rgbToHex(shape.color[0])}`,
-                        }}
-                      />
-                    );
-                  } catch (error) {
-                    console.error('Error rendering shape:', error);
-                    return null;
-                  }
-                })}
+    const fillColor = shape.fill ? rgbToHex(shape.fill) : 'transparent';
+    const strokeColor = shape.color ? rgbToHex(shape.color) : '#000000';
+
+    return (
+      <div
+        key={`shape-${index}`}
+        className="absolute"
+        style={{
+          left: Math.min(x0, x1),
+          top: Math.min(y0, y1),
+          width,
+          height,
+          backgroundColor: fillColor,
+          border: shape.width > 0 ? `${Math.max(shape.width * zoom, 0.5)}px solid ${strokeColor}` : 'none',
+        }}
+      />
+    );
+  } catch (error) {
+    console.error('Error rendering shape:', error);
+    return null;
+  }
+})}
 
                 {/* Render Text Blocks */}
                 {textBlocks.map((block, index) => {
