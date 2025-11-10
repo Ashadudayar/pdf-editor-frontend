@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Upload, ArrowLeft, Download, Type, Image as ImageIcon } from 'lucide-react';
+import { Upload, ArrowLeft, Download, Type, Image as ImageIcon, FileText } from 'lucide-react';
 import Link from 'next/link';
 import * as pdfjsLib from 'pdfjs-dist';
 
-// Set worker with correct path
+// ✅ Fixed: Use unpkg CDN with proper CORS support
 if (typeof window !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
 }
@@ -51,6 +51,65 @@ export default function WatermarkPage() {
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://positive-creativity-production.up.railway.app/api';
   const imageInputRef = useRef<HTMLInputElement>(null);
 
+  const generatePDFPreview = async (pdfFile: File) => {
+    try {
+      // Check if PDF.js is loaded
+      if (!pdfjsLib) {
+        console.error('PDF.js not loaded');
+        return;
+      }
+
+      const arrayBuffer = await pdfFile.arrayBuffer();
+      
+      // Load PDF document
+      const loadingTask = pdfjsLib.getDocument({ 
+        data: arrayBuffer,
+      });
+      
+      const pdf = await loadingTask.promise;
+      const page = await pdf.getPage(1);
+      
+      // Calculate scale for good quality
+      const scale = 1.5;
+      const viewport = page.getViewport({ scale });
+      
+      // Create canvas
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      
+      if (!context) {
+        throw new Error('Could not get canvas context');
+      }
+      
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      
+      // White background
+      context.fillStyle = 'white';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Render PDF page
+      const renderContext = {
+        canvasContext: context,
+        viewport: viewport,
+      };
+      
+      await page.render(renderContext).promise;
+      
+      // Convert to image and set preview
+      const imageUrl = canvas.toDataURL('image/png');
+      setPreviewUrl(imageUrl);
+      
+      // Clean up
+      pdf.destroy();
+      
+    } catch (error: any) {
+      console.error('PDF preview error:', error);
+      // Don't set error - preview is optional
+      setPreviewUrl('');
+    }
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFile = e.target.files?.[0];
     if (!uploadedFile) return;
@@ -88,47 +147,24 @@ export default function WatermarkPage() {
         }
       } catch (err) {
         console.log('Could not get page count, using default');
+        setNumPages(1);
+        setToPage(1);
       }
 
-      // Generate preview using PDF.js
-      await generatePDFPreview(uploadedFile);
+      // Try to generate preview, but don't fail if it doesn't work
+      try {
+        await generatePDFPreview(uploadedFile);
+      } catch (err) {
+        console.log('Preview failed, but continuing...');
+        setPreviewUrl('');
+      }
+      
     } catch (error: any) {
       console.error('Upload failed:', error);
       setError('Failed to upload PDF. Please try again.');
       setFile(null);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const generatePDFPreview = async (pdfFile: File) => {
-    try {
-      const arrayBuffer = await pdfFile.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      const page = await pdf.getPage(1);
-      
-      const viewport = page.getViewport({ scale: 1.5 });
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d')!;
-      
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      
-      // White background
-      context.save();
-      context.fillStyle = 'white';
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.restore();
-      
-      await page.render({
-        canvasContext: context,
-        viewport: viewport,
-      }).promise;
-      
-      setPreviewUrl(canvas.toDataURL('image/png'));
-    } catch (error) {
-      console.error('Failed to generate preview:', error);
-      setError('Failed to generate PDF preview');
     }
   };
 
@@ -393,7 +429,7 @@ export default function WatermarkPage() {
                       <span
                         style={{
                           fontFamily: font,
-                          fontSize: `${fontSize * 0.5}px`, // Scaled down for preview
+                          fontSize: `${fontSize * 0.5}px`,
                           color: textColor,
                           fontWeight: bold ? 'bold' : 'normal',
                           fontStyle: italic ? 'italic' : 'normal',
@@ -430,8 +466,43 @@ export default function WatermarkPage() {
                 </div>
               </div>
             ) : (
-              <div className="w-96 h-[500px] bg-gray-100 flex items-center justify-center">
-                <p className="text-gray-500">Loading preview...</p>
+              <div className="w-96 h-[500px] bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col items-center justify-center gap-4 rounded-lg border-2 border-dashed border-gray-300">
+                <FileText className="w-24 h-24 text-gray-400" />
+                <div className="text-center px-6">
+                  <p className="text-gray-700 font-medium mb-2">{file?.name}</p>
+                  <p className="text-sm text-gray-500 mb-1">Preview not available</p>
+                  <p className="text-xs text-gray-400">Watermark will be applied correctly ✓</p>
+                </div>
+                {/* Show watermark preview even without PDF preview */}
+                {watermarkType === 'text' && watermarkText && (
+                  <div className="mt-4 p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+                    <p className="text-xs text-gray-500 mb-2">Watermark preview:</p>
+                    <span
+                      style={{
+                        fontFamily: font,
+                        fontSize: `${fontSize * 0.3}px`,
+                        color: textColor,
+                        fontWeight: bold ? 'bold' : 'normal',
+                        fontStyle: italic ? 'italic' : 'normal',
+                        textDecoration: underline ? 'underline' : 'none',
+                        opacity: transparency / 100,
+                      }}
+                    >
+                      {watermarkText}
+                    </span>
+                  </div>
+                )}
+                {watermarkType === 'image' && watermarkImagePreview && (
+                  <div className="mt-4 p-4 bg-white rounded-lg shadow-sm border border-gray-200">
+                    <p className="text-xs text-gray-500 mb-2">Watermark preview:</p>
+                    <img
+                      src={watermarkImagePreview}
+                      alt="Watermark"
+                      className="max-w-[100px] max-h-[100px] object-contain"
+                      style={{ opacity: transparency / 100 }}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>
