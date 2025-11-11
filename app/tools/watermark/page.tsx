@@ -7,7 +7,8 @@ import * as pdfjsLib from 'pdfjs-dist';
 
 // ✅ Fixed: Use unpkg CDN with proper CORS support
 if (typeof window !== 'undefined') {
-  pdfjsLib.GlobalWorkerOptions.workerSrc = '/js/pdf.worker.min.js';
+  const pdfjsVersion = pdfjsLib.version || '4.10.38';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsVersion}/build/pdf.worker.min.mjs`;
 }
 
 type WatermarkType = 'text' | 'image';
