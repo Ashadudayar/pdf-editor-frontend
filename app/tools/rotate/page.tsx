@@ -86,7 +86,7 @@ export default function RotatePDFPage() {
             const ctx = canvas.getContext('2d');
             
             if (ctx && layout.page_width && layout.page_height) {
-              const scale = 0.3; // Thumbnail scale
+              const scale = 2.5; // Thumbnail scale
               canvas.width = layout.page_width * scale;
               canvas.height = layout.page_height * scale;
               
