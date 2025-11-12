@@ -713,23 +713,23 @@ export default function WatermarkPage() {
               />
             </div>
 
-            {/* Rotation */}
-<div className="mb-6">
-  <label className="block text-sm font-medium text-gray-700 mb-2">
-    Rotation:
-  </label>
-  <select
-    value={rotation}
-    onChange={(e) => setRotation(parseInt(e.target.value))}
-    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-  >
-    <option value="0">0° (No rotation)</option>
-    <option value="90">90° (Rotate right)</option>
-    <option value="180">180° (Upside down)</option>
-    <option value="270">270° (Rotate left)</option>
-  </select>
-  <p className="text-xs text-gray-500 mt-1">Text watermarks support 90° increments only</p>
-</div>
+                        {/* Rotation */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Rotation:
+              </label>
+              <select
+                value={rotation}
+                onChange={(e) => setRotation(parseInt(e.target.value))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="0">Do not rotate</option>
+                <option value="45">45°</option>
+                <option value="90">90°</option>
+                <option value="180">180°</option>
+                <option value="270">270°</option>
+              </select>
+            </div>
 
             {/* Pages */}
             <div className="mb-6">
