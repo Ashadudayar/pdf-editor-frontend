@@ -147,7 +147,7 @@ export default function CropPDFPage() {
     setZoom(prev => Math.min(200, Math.max(50, prev + delta)));
   };
 
-  const handleReset = () => {
+  const handleResetCrop = () => {
     setCropArea({
       x: 10,
       y: 10,
@@ -550,7 +550,7 @@ export default function CropPDFPage() {
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold">Crop PDF</h2>
               <button
-                onClick={handleReset}
+                onClick={handleResetCrop}
                 className="text-red-600 hover:text-red-700 flex items-center gap-1 text-sm font-medium"
               >
                 <RotateCcw className="w-4 h-4" />
