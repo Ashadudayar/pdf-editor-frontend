@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { Upload, Download, Camera, Trash2, ArrowLeft, Image as ImageIcon } from 'lucide-react';
+import { useState } from 'react';
+import { Upload, Download, Trash2, ArrowLeft, Image as ImageIcon } from 'lucide-react';
 import Link from 'next/link';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
@@ -22,7 +22,6 @@ export default function ScanToPDFTool() {
   const [processing, setProcessing] = useState(false);
   const [resultId, setResultId] = useState<string | null>(null);
   const [error, setError] = useState<string>('');
-  const [showCamera, setShowCamera] = useState(false);
   
   // Options
   const [orientation, setOrientation] = useState<Orientation>('portrait');
@@ -33,61 +32,9 @@ export default function ScanToPDFTool() {
   const [autoDeskew, setAutoDeskew] = useState(false);
   const [autoCrop, setAutoCrop] = useState(false);
 
-  // Camera refs
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     setScans(prev => [...prev, ...files]);
-  };
-
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } // Use back camera on mobile
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        streamRef.current = stream;
-        setShowCamera(true);
-      }
-    } catch (err) {
-      alert('Camera access denied. Please allow camera permissions.');
-      console.error('Camera error:', err);
-    }
-  };
-
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    setShowCamera(false);
-  };
-
-  const capturePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(video, 0, 0);
-        
-        canvas.toBlob((blob) => {
-          if (blob) {
-            const file = new File([blob], `scan_${Date.now()}.jpg`, { type: 'image/jpeg' });
-            setScans(prev => [...prev, file]);
-            stopCamera();
-          }
-        }, 'image/jpeg', 0.95);
-      }
-    }
   };
 
   const handleConvert = async () => {
@@ -139,7 +86,6 @@ export default function ScanToPDFTool() {
     setScans([]);
     setResultId(null);
     setError('');
-    stopCamera();
   };
 
   return (
@@ -152,7 +98,7 @@ export default function ScanToPDFTool() {
             <span>Back</span>
           </Link>
           <div className="flex items-center gap-3">
-            <Camera className="w-8 h-8 text-indigo-600" />
+            <ImageIcon className="w-8 h-8 text-indigo-600" />
             <div>
               <h1 className="text-xl font-bold text-gray-900">Scan to PDF</h1>
               <p className="text-sm text-gray-500">Convert scanned documents to PDF</p>
@@ -164,96 +110,49 @@ export default function ScanToPDFTool() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         {!resultId ? (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Left: Upload/Camera Area */}
+            {/* Left: Upload Area */}
             <div className="lg:col-span-2 space-y-6">
-              {!showCamera ? (
-                <>
-                  {/* Upload & Camera Buttons */}
-                  <div className="grid grid-cols-2 gap-4">
-                    {/* Upload Button */}
-                    <div className="bg-white rounded-2xl shadow-lg p-8">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        onChange={handleFileUpload}
-                        className="hidden"
-                        id="file-upload"
-                      />
-                      <label
-                        htmlFor="file-upload"
-                        className="flex flex-col items-center justify-center border-2 border-dashed border-indigo-300 rounded-xl p-8 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition"
-                      >
-                        <Upload className="w-12 h-12 text-indigo-500 mb-3" />
-                        <p className="text-base font-semibold text-gray-700 mb-1">Upload Scanned Images</p>
-                        <p className="text-sm text-gray-500">JPG, PNG from scanner or camera</p>
-                      </label>
-                    </div>
+              {/* Upload Button */}
+              <div className="bg-white rounded-2xl shadow-lg p-8">
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="file-upload"
+                />
+                <label
+                  htmlFor="file-upload"
+                  className="flex flex-col items-center justify-center border-2 border-dashed border-indigo-300 rounded-xl p-12 cursor-pointer hover:border-indigo-500 hover:bg-indigo-50 transition"
+                >
+                  <Upload className="w-16 h-16 text-indigo-500 mb-4" />
+                  <p className="text-lg font-semibold text-gray-700 mb-2">Upload Scanned Images</p>
+                  <p className="text-sm text-gray-500">JPG, PNG from scanner or camera</p>
+                </label>
+              </div>
 
-                    {/* Camera Button */}
-                    <div className="bg-white rounded-2xl shadow-lg p-8">
-                      <button
-                        onClick={startCamera}
-                        className="flex flex-col items-center justify-center border-2 border-dashed border-blue-300 rounded-xl p-8 cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition w-full"
-                      >
-                        <Camera className="w-12 h-12 text-blue-500 mb-3" />
-                        <p className="text-base font-semibold text-gray-700 mb-1">Take Photo</p>
-                        <p className="text-sm text-gray-500">Use your camera</p>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Scanned Images Preview */}
-                  {scans.length > 0 && (
-                    <div className="bg-white rounded-2xl shadow-lg p-6">
-                      <h3 className="text-lg font-semibold mb-4">Scans ({scans.length})</h3>
-                      <div className="grid grid-cols-4 gap-4">
-                        {scans.map((scan, index) => (
-                          <div key={index} className="relative group">
-                            <img
-                              src={URL.createObjectURL(scan)}
-                              alt={scan.name}
-                              className="w-full h-32 object-cover rounded-lg border-2 border-gray-200"
-                            />
-                            <button
-                              onClick={() => removeScan(index)}
-                              className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition shadow-lg"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                            <p className="text-xs text-gray-500 mt-1 truncate">{scan.name}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : (
-                /* Camera View */
+              {/* Scanned Images Preview */}
+              {scans.length > 0 && (
                 <div className="bg-white rounded-2xl shadow-lg p-6">
-                  <div className="relative">
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      className="w-full rounded-lg"
-                    />
-                    <canvas ref={canvasRef} className="hidden" />
-                    
-                    <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-4">
-                      <button
-                        onClick={capturePhoto}
-                        className="bg-indigo-600 text-white p-4 rounded-full hover:bg-indigo-700 transition shadow-lg"
-                      >
-                        <Camera className="w-6 h-6" />
-                      </button>
-                      <button
-                        onClick={stopCamera}
-                        className="bg-gray-600 text-white px-6 py-3 rounded-full hover:bg-gray-700 transition shadow-lg"
-                      >
-                        Cancel
-                      </button>
-                    </div>
+                  <h3 className="text-lg font-semibold mb-4">Scans ({scans.length})</h3>
+                  <div className="grid grid-cols-4 gap-4">
+                    {scans.map((scan, index) => (
+                      <div key={index} className="relative group">
+                        <img
+                          src={URL.createObjectURL(scan)}
+                          alt={scan.name}
+                          className="w-full h-32 object-cover rounded-lg border-2 border-gray-200"
+                        />
+                        <button
+                          onClick={() => removeScan(index)}
+                          className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition shadow-lg"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                        <p className="text-xs text-gray-500 mt-1 truncate">{scan.name}</p>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
