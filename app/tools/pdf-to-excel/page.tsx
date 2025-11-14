@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { FileSpreadsheet, Upload, Download } from 'lucide-react';
+import { FileSpreadsheet, Upload, Download, CheckCircle } from 'lucide-react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
@@ -44,14 +44,18 @@ export default function PDFToExcelTool() {
     try {
       const response = await fetch(`${API_URL}/documents/${documentId}/pdf-to-excel/`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
       });
 
-      if (!response.ok) throw new Error('Conversion failed');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Conversion failed');
+      }
 
       const data = await response.json();
       setResult(data);
-    } catch (err) {
-      setError('Failed to convert PDF. Make sure it contains tables.');
+    } catch (err: any) {
+      setError(err.message || 'Failed to convert PDF. Make sure it contains tables.');
     } finally {
       setProcessing(false);
     }
@@ -75,7 +79,7 @@ export default function PDFToExcelTool() {
         <div className="text-center mb-8">
           <FileSpreadsheet className="w-16 h-16 text-green-600 mx-auto mb-4" />
           <h1 className="text-4xl font-bold text-gray-900 mb-2">PDF to Excel</h1>
-          <p className="text-gray-600">Extract tables from PDF to .xlsx</p>
+          <p className="text-gray-600">Extract tables from PDF to editable .xlsx</p>
         </div>
 
         {!result ? (
@@ -103,9 +107,16 @@ export default function PDFToExcelTool() {
             {file && (
               <div className="bg-white rounded-2xl shadow-lg p-6">
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                  <p className="text-sm text-blue-800">
-                    📊 This tool extracts tables from your PDF. Works best with PDFs containing clear table structures.
-                  </p>
+                  <h4 className="font-semibold text-blue-900 mb-2 flex items-center gap-2">
+                    <CheckCircle className="w-5 h-5" />
+                    What this tool does:
+                  </h4>
+                  <ul className="text-sm text-blue-800 space-y-1">
+                    <li>• Extracts all tables from your PDF</li>
+                    <li>• Each table becomes a separate Excel sheet</li>
+                    <li>• Preserves data structure and formatting</li>
+                    <li>• Headers are automatically styled</li>
+                  </ul>
                 </div>
                 <button
                   onClick={handleConvert}
@@ -119,7 +130,8 @@ export default function PDFToExcelTool() {
 
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                <p className="text-red-600">{error}</p>
+                <p className="text-red-600 font-semibold">Error:</p>
+                <p className="text-red-700 text-sm mt-1">{error}</p>
               </div>
             )}
           </div>
@@ -131,7 +143,16 @@ export default function PDFToExcelTool() {
               </svg>
             </div>
             <h3 className="text-2xl font-bold text-gray-900 mb-2">Excel Created!</h3>
-            <p className="text-gray-600 mb-6">{result.message}</p>
+            <p className="text-gray-600 mb-2">{result.message}</p>
+            
+            {result.tables_count && (
+              <div className="flex justify-center gap-4 mb-6 text-sm text-gray-600">
+                <span>📊 {result.tables_count} table(s)</span>
+                {result.file_size && (
+                  <span>💾 {(result.file_size / 1024).toFixed(1)} KB</span>
+                )}
+              </div>
+            )}
             
             <button
               onClick={handleDownload}
