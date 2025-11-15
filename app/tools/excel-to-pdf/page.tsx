@@ -31,7 +31,7 @@ export default function ExcelToPDFTool() {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_URL}/excel-to-pdf/`, {
+      const response = await fetch(`${API_URL}/documents/excel-to-pdf/`, {
         method: 'POST',
         body: formData,
       });
@@ -48,9 +48,9 @@ export default function ExcelToPDFTool() {
   };
 
   const handleDownload = () => {
-    if (!result?.pdf_url) return;
-    window.open(`${API_URL.replace('/api', '')}${result.pdf_url}`, '_blank');
-  };
+  if (!result?.download_url) return;
+  window.open(`${API_URL}${result.download_url}`, '_blank');
+};
 
   const reset = () => {
     setFile(null);
